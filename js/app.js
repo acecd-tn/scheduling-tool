@@ -171,6 +171,25 @@
     return 'over';
   };
   App.fmtStaff = (v) => (Math.round(v * 10) / 10).toString();
+  App.levelBadge = (lvl) => {
+    if (!lvl) return '';
+    const cls = { normal: 'ok', short: 'warn', critical: 'bad' }[lvl.level];
+    return `<span class="badge ${cls}" title="Effective ${(Math.round(lvl.effective * 10) / 10)} of ${lvl.authorized} authorized">${lvl.level === 'normal' ? 'Normal' : lvl.level === 'short' ? 'Short' : 'Critical'}${lvl.pct != null ? ' ' + Math.round(lvl.pct * 100) + '%' : ''}</span>`;
+  };
+  /** Job classes whose staffing level differs from the last one a supervisor acknowledged. */
+  App.levelChanges = (st) => P.jobClasses(st).filter((jc) => P.classMembers(st, jc).length && +jc.authorized).map((jc) => ({ jc, lvl: P.staffingLevel(st, jc) }))
+    .filter((x) => x.lvl.level !== ((st.center.levelSeen || {})[x.jc.id] || 'normal'));
+  App.levelNotice = (st) => {
+    if (!App.isSup()) return '';
+    const ch = App.levelChanges(st);
+    if (!ch.length) return '';
+    return `<div class="callout ${ch.some((x) => x.lvl.level === 'critical') ? 'bad' : 'warn'}" style="margin-bottom:14px">${ch.map((x) => `<div><b>${esc(x.jc.name)}</b> staffing is now ${App.levelBadge(x.lvl)} (was ${esc((st.center.levelSeen || {})[x.jc.id] || 'normal')}). ${x.lvl.level === 'normal' ? 'Consider restoring the relief margin and vacation limit.' : 'Consider a line review or re-bid (Lines & Bid → Suggest lines).'}</div>`).join('')}
+      <div style="margin-top:6px"><button class="btn sm" data-action="go" data-to="bid">Review lines</button> <button class="btn sm" data-action="level-ack">Got it</button></div></div>`;
+  };
+  App.actions['level-ack'] = () => App.commit((s) => {
+    s.center.levelSeen = Object.assign({}, s.center.levelSeen);
+    for (const x of App.levelChanges(s)) s.center.levelSeen[x.jc.id] = x.lvl.level;
+  });
   App.statusBadge = (s) => `<span class="badge ${s === 'approved' || s === 'awarded' ? 'ok' : s === 'pending' || s === 'proposed' || s === 'accepted' || s === 'open' ? 'warn' : s === 'denied' || s === 'declined' ? 'bad' : ''}">${esc(s)}</span>`;
 
   // --------------------------------------------------------- notifications

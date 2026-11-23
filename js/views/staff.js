@@ -23,10 +23,11 @@
       return `<div class="page-head"><div><h1>Staff & authorized strength</h1><p>Each person has a job class (their position, e.g. Telecommunicator) and the consoles they're certified on. Consoles are only where people sit each hour, assigned by certification and fill priority.</p></div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${ui.staff.showInactive ? 'checked' : ''} data-change="staff-inactive"> Show separated</label>
         <button class="btn primary" data-action="emp-edit">+ Employee</button></div></div>
+      ${App.levelNotice(st)}
       <div class="grid" style="margin-bottom:14px">
         <div class="panel"><h2>Job classes</h2>
           <p class="small muted" style="margin:0">A job class is a budgeted position (e.g. Telecommunicator). Authorized counts, vacancies, part-time positions, the daily leave limit, lines and bids are all by job class.</p>
-          <div class="table-wrap"><table class="positions"><thead><tr><th>Job class</th><th title="Consoles this job class staffs (for planning and bid previews)">Consoles staffed</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (separate from full-time)">PT authorized</th><th class="num" title="Part-time staff (FTE at their weekly caps)">PT filled</th><th class="num" title="Active and solo-cleared staff">Countable</th><th title="Most people in this job class on planned leave (vacation/comp/holiday) per day">Max off / day</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table class="positions"><thead><tr><th>Job class</th><th title="Consoles this job class staffs (for planning and bid previews)">Consoles staffed</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (separate from full-time)">PT authorized</th><th class="num" title="Part-time staff (FTE at their weekly caps)">PT filled</th><th class="num" title="Active and solo-cleared staff">Countable</th><th title="Effective staffing: full-time filled minus extended leave and trainees not solo, plus part-time FTE, as % of authorized">Staffing level</th><th title="Most people in this job class on planned leave (vacation/comp/holiday) per day">Max off / day</th><th></th></tr></thead><tbody>
           ${sum.map((r) => `<tr><td><input value="${esc(r.jobClass.name)}" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="name"></td>
             <td class="small">${r.positionIds.map((pid) => `<span class="badge">${esc(App.posName(pid))}</span>`).join(' ') || '<span class="muted">none</span>'}</td>
             <td><input type="number" min="0" value="${r.authorized}" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="authorized"></td>
@@ -34,6 +35,7 @@
             <td><input type="number" min="0" value="${r.authorizedPart || ''}" placeholder="0" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="authorizedPartTime"></td>
             <td class="num">${r.partTime}${r.partTime ? ` <span class="small muted">(${r.partFTE.toFixed(1)} FTE)</span>` : ''}${r.partVacancies ? ` <span class="badge warn" title="Part-time vacancies">${r.partVacancies} open</span>` : ''}</td>
             <td class="num">${r.countable}</td>
+            <td class="nowrap">${+r.authorized ? App.levelBadge(P.staffingLevel(st, r.jobClass)) : '<span class="muted small">set authorized</span>'}</td>
             <td><input type="number" min="0" value="${esc(r.jobClass.maxOffPerDay ?? '')}" placeholder="none" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="maxOffPerDay"></td>
             <td>${r.current ? '' : `<button class="btn sm danger" data-action="jc-del" data-id="${esc(r.jobClass.id)}" title="Delete job class">✕</button>`}</td></tr>`).join('')}
           </tbody></table></div><button class="btn sm" data-action="jc-add" style="margin-top:8px">+ Job class</button></div>
@@ -48,6 +50,7 @@
             <td><input type="checkbox" ${p.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${p.id}" data-f="isConsole"></td>
             <td><button class="btn sm danger" data-action="pos-del" data-id="${p.id}">✕</button></td></tr>`).join('')}
           </tbody></table></div><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Console</button></div>
+        ${outlookPanel(st)}
         <div class="panel"><h2>What the vacancies cost</h2>
           <p>${sum.map((r) => `${esc(r.jobClass.name)}: <b>${r.vacancies}</b> vacant`).join(' · ')}</p>
           <p class="small muted">Authorized counts full-time positions only. Part-time positions are a separate count (PT authorized); part-timers don't fill a full-time vacancy, but they work open shifts at straight time.</p>
@@ -64,6 +67,19 @@
       </tbody></table></div></div>`;
     },
   };
+
+  /** Staffing level now and on the 1st of each of the next 6 months. */
+  function outlookPanel(st) {
+    const classes = P.jobClasses(st).filter((jc) => +jc.authorized && P.classMembers(st, jc).length);
+    if (!classes.length) return '';
+    const rows = classes.map((jc) => ({ jc, pts: P.projectLevels(st, jc, 6) }));
+    const dates = rows[0].pts.map((x) => x.day);
+    return `<div class="panel"><h2>Staffing outlook</h2>
+      <div class="table-wrap"><table><thead><tr><th>Job class</th>${dates.map((d, i) => `<th>${i ? new Date(d * 86400000).toLocaleString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' }) : 'Today'}</th>`).join('')}</tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${esc(r.jc.name)}</td>${r.pts.map((x) => `<td class="nowrap">${App.levelBadge(x)}<div class="small muted">${(Math.round(x.effective * 10) / 10)} / ${x.authorized}${x.out.leave ? ` · ${x.out.leave} on leave` : ''}${x.out.trainees ? ` · ${x.out.trainees} trainee${x.out.trainees > 1 ? 's' : ''}` : ''}</div></td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      <p class="small muted">From trainees' expected solo dates, extended-leave return dates (FMLA, military and injury leave of 7+ days, or "Extended leave" status) and hire dates. Thresholds and what each level changes are in Settings.</p></div>`;
+  }
 
   function statusBadge(e) {
     if (e.status === 'active') return '<span class="badge ok">Active</span>';
@@ -186,6 +202,8 @@
         <div class="field"><label>Status</label><select name="status">${App.opts(P.STATUSES, e.status, (s) => s.label)}</select></div>
         <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time</option></select></div>
         <div class="field"><label>Part-time weekly cap (h)</label><input type="number" step="0.5" min="1" max="40" name="maxWeeklyHours" value="${esc(e.maxWeeklyHours ?? '')}" placeholder="${esc(st.center.partTimeDefaultCap)}"></div>
+        <div class="field"><label>Expected solo date (trainees)</label><input type="date" name="soloDate" value="${esc(e.soloDate || '')}"></div>
+        <div class="field"><label>Expected return (extended leave)</label><input type="date" name="returnDate" value="${esc(e.returnDate || '')}"></div>
         <div class="field"><label class="check" style="margin-top:22px"><input type="checkbox" name="soloCleared" ${e.soloCleared ? 'checked' : ''}> Solo-cleared (counts toward minimums)</label></div>
         <div class="field"><label>Hire date</label><input type="date" name="hireDate" value="${esc(e.hireDate)}"></div>
         <div class="field"><label>Seniority date (bid order)</label><input type="date" name="seniorityDate" value="${esc(e.seniorityDate)}"></div>
@@ -206,6 +224,8 @@
     f.hourlyRate = +f.hourlyRate || 0;
     if (f.employmentType !== 'part') { f.employmentType = 'full'; f.maxWeeklyHours = null; }
     else f.maxWeeklyHours = f.maxWeeklyHours === '' ? null : Math.min(40, Math.max(1, +f.maxWeeklyHours));
+    f.soloDate = f.soloDate || null;
+    f.returnDate = f.returnDate || null;
     if (!f.jobClassId) return App.toast('Choose a job class', true);
     f.positionId = f.positionId || null;
     f.qualifications = [...new Set([f.positionId, ...(f.qualifications || [])].filter(Boolean))];

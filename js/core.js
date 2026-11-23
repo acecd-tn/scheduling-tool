@@ -44,7 +44,7 @@
     { id: 'trade', label: 'Shift trade (straight time)' },
   ];
   const COLLECTIONS = ['positions', 'jobClasses', 'shiftTemplates', 'patterns', 'employees', 'lines', 'exceptions', 'fills', 'bids',
-    'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins', 'assignments', 'scheduleImports'];
+    'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins', 'assignments', 'scheduleImports', 'shiftMoves'];
 
   const STATUSES = [
     { id: 'active', label: 'Active' },
@@ -126,6 +126,15 @@
       maxHours7Days: 60,
       partTimeFirst: true,        // voluntary list: eligible part-timers (straight time) before full-time OT
       partTimeDefaultCap: 32,     // weekly hour cap for part-timers without their own (part-timers are never forced)
+      partTimeOnLines: 'count',   // 'count' = part-timers' scheduled lines count toward minimums; 'extra' = they're on top
+      levelIncludesPartTime: true,// staffing level adds part-time FTE
+      levelNormalPct: 90,         // staffing level thresholds (% of authorized)
+      levelShortPct: 75,
+      // Per staffing level: relief margin (people above minimum per console-hour that's
+      // acceptable) and daily vacation limit ('' = the job class's own limit).
+      levelRules: { normal: { reliefMargin: 1, maxOffPerDay: '' }, short: { reliefMargin: 0, maxOffPerDay: '' }, critical: { reliefMargin: 0, maxOffPerDay: '' } },
+      dayOffNoticeDays: 14,       // notice needed before changing someone's days off
+      levelSeen: {},              // last staffing level acknowledged per job class
       dayStartHour: '',           // scheduling day start hour (0-23); '' = earliest regular shift start
       shiftBoundaries: '',        // e.g. '0700,1900'; '' = worked out from the shifts people work
       coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
@@ -161,6 +170,7 @@
       notifications: [],
       pins: [],
       assignments: [],      // day-by-day shifts from an imported schedule
+      shiftMoves: [],       // approved day-off moves (work one day instead of another)
       scheduleImports: [],  // each import: who and which dates it covers
     };
   }
@@ -396,6 +406,10 @@
     const out = [];
     const win = importWindows(state);
     const imported = (empId, d) => { const w = win[empId]; return !!w && w.some(([a, b]) => d >= a && d <= b); };
+    // Approved day-off moves: the person is off on offDate and works workDate instead.
+    const movedOff = new Set();
+    const moves = (state.shiftMoves || []).filter((m) => m.status === 'approved');
+    for (const m of moves) movedOff.add(m.employeeId + '|' + parseDate(m.offDate));
     for (const line of state.lines) {
       if (!line.employeeId) continue;
       const emp = ix.emp[line.employeeId];
@@ -404,6 +418,7 @@
       const b = Math.min(toDay, line.effectiveTo ? parseDate(line.effectiveTo) : Infinity);
       for (let d = a; d <= b; d++) {
         if (win[emp.id] && imported(emp.id, d)) continue;
+        if (movedOff.has(emp.id + '|' + d)) continue;
         const tpl = lineShiftOn(line, d, ix);
         if (!tpl) continue;
         const start = d * DAY + parseTime(tpl.start);
@@ -419,10 +434,22 @@
       if (d < fromDay || d > toDay) continue;
       const emp = ix.emp[as.employeeId], tpl = ix.tpl[as.templateId];
       if (!emp || emp.status === 'inactive' || !tpl) continue;
+      if (movedOff.has(emp.id + '|' + d)) continue;
       const start = d * DAY + parseTime(tpl.start);
       out.push({
         employeeId: emp.id, positionId: emp.positionId || certifications(emp)[0] || null, day: d, start,
         end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: null, assignmentId: as.id, importId: as.importId || null, kind: 'regular',
+      });
+    }
+    for (const m of moves) {
+      const d = parseDate(m.workDate);
+      if (d < fromDay || d > toDay) continue;
+      const emp = ix.emp[m.employeeId], tpl = ix.tpl[m.templateId];
+      if (!emp || emp.status === 'inactive' || !tpl) continue;
+      const start = d * DAY + parseTime(tpl.start);
+      out.push({
+        employeeId: emp.id, positionId: emp.positionId || certifications(emp)[0] || null, day: d, start,
+        end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: null, moveId: m.id, kind: 'regular',
       });
     }
     return out;
@@ -539,9 +566,12 @@
       for (let i = 0; i < n; i++) req[i] = requiredFor(state, p.id, fromDay + Math.floor(i / 24), i % 24);
     }
     const mode = state.center.coverageMode || 'assigned';
+    // Part-timers' scheduled lines can be set as extra (on top of minimums); shifts they
+    // pick up (OT/fills) always count.
+    const extraPT = (iv) => state.center.partTimeOnLines === 'extra' && iv.kind === 'regular' && isPartTime(ix.emp[iv.employeeId]);
     if (mode === 'home') {
       for (const iv of wi.intervals) {
-        if (!countable(ix.emp[iv.employeeId])) continue;
+        if (!countable(ix.emp[iv.employeeId]) || extraPT(iv)) continue;
         const arr = staffed[iv.positionId];
         if (!arr) continue;
         const h0 = Math.max(0, Math.floor((iv.start - base) / 60));
@@ -564,7 +594,7 @@
     const present = Array.from({ length: n }, () => new Map());
     for (const iv of wi.intervals) {
       const emp = ix.emp[iv.employeeId];
-      if (!countable(emp)) continue;
+      if (!countable(emp) || extraPT(iv)) continue;
       const h0 = Math.max(0, Math.floor((iv.start - base) / 60));
       const h1 = Math.min(n, Math.ceil((iv.end - base) / 60));
       for (let h = h0; h < h1; h++) {
@@ -1157,7 +1187,7 @@
     if (!PLANNED_LEAVE.includes(exc.type)) return [];
     const emp = state.employees.find((e) => e.id === exc.employeeId);
     const jc = empClass(state, emp);
-    const lim = jc ? jc.maxOffPerDay : null;
+    const lim = jc ? maxOffFor(state, jc) : null;
     if (lim == null || lim === '') return [];
     const [a, b] = exceptionRange(exc);
     const out = [];
@@ -1167,6 +1197,74 @@
       if (who.size >= +lim) out.push({ day: d, others: [...who] });
     }
     return out;
+  }
+
+  // -------------------------------------------------------- staffing level
+  const EXTENDED_LEAVE = ['family', 'military', 'injury'];
+  const LEVELS = ['normal', 'short', 'critical'];
+
+  /** On extended leave on `day`: status LOA (until returnDate), or approved FMLA/military/injury leave of 7+ days. */
+  function onExtendedLeave(state, emp, day) {
+    if (emp.status === 'leave' && !(emp.returnDate && parseDate(emp.returnDate) <= day)) return true;
+    return state.exceptions.some((e) => {
+      if (e.employeeId !== emp.id || e.status !== 'approved' || !EXTENDED_LEAVE.includes(e.type)) return false;
+      const [a, b] = exceptionRange(e);
+      return b - a + 1 >= 7 && a <= day && day <= b;
+    });
+  }
+  /** Able to work solo on `day` (active, or a trainee who is solo-cleared or past their expected solo date). */
+  function soloOn(emp, day) {
+    if (emp.hireDate && parseDate(emp.hireDate) > day) return false;
+    if (emp.status === 'active' || emp.status === 'leave') return true;
+    if (emp.status === 'trainee') return !!emp.soloCleared || (!!emp.soloDate && parseDate(emp.soloDate) <= day);
+    return false;
+  }
+
+  /**
+   * Effective staffing for a job class on a day: full-time filled, minus people on
+   * extended leave and trainees not yet solo, plus part-time FTE (setting), as a % of
+   * authorized full-time positions.
+   */
+  function staffingLevel(state, jc, day = todayNum()) {
+    const c = state.center;
+    const authorized = +jc.authorized || 0;
+    const members = classMembers(state, jc);
+    let full = 0, partFTE = 0, out = { leave: 0, trainees: 0 };
+    let filled = 0;
+    for (const e of members) {
+      if (!isPartTime(e)) filled++;
+      const away = onExtendedLeave(state, e, day);
+      const solo = soloOn(e, day);
+      if (!solo) { if (!isPartTime(e)) out.trainees++; continue; }
+      if (away) { if (!isPartTime(e)) out.leave++; continue; }
+      if (isPartTime(e)) partFTE += partTimeCap(state, e) / 40; else full++;
+    }
+    const effective = full + (c.levelIncludesPartTime !== false ? partFTE : 0);
+    const pct = authorized ? effective / authorized : null;
+    const normal = (+c.levelNormalPct || 90) / 100, short = (+c.levelShortPct || 75) / 100;
+    const level = pct == null || pct >= normal ? 'normal' : pct >= short ? 'short' : 'critical';
+    return { jobClass: jc, day, authorized, filled, effective, partFTE, out, pct, level };
+  }
+  function levelRule(state, level) {
+    const r = (state.center.levelRules || {})[level] || {};
+    const d = defaultCenter().levelRules[level];
+    return {
+      reliefMargin: r.reliefMargin === '' || r.reliefMargin == null ? d.reliefMargin : +r.reliefMargin,
+      maxOffPerDay: r.maxOffPerDay === '' || r.maxOffPerDay == null ? null : +r.maxOffPerDay,
+    };
+  }
+  /** Daily vacation limit for a job class at its current staffing level. */
+  function maxOffFor(state, jc, day = todayNum()) {
+    const rule = levelRule(state, staffingLevel(state, jc, day).level);
+    if (rule.maxOffPerDay != null) return rule.maxOffPerDay;
+    return jc.maxOffPerDay;
+  }
+  /** Staffing level today and on the 1st of each of the next `months` months. */
+  function projectLevels(state, jc, months = 6, today = todayNum()) {
+    const pts = [today];
+    const dt = new Date(today * 86400000);
+    for (let i = 1; i <= months; i++) pts.push(Math.floor(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() + i, 1) / 86400000));
+    return pts.map((d) => staffingLevel(state, jc, d));
   }
 
   // ------------------------------------------------------- scheduling day
@@ -1344,7 +1442,7 @@
     // Two senior call-takers are also certified on law.
     ct[4].qualifications.push('pos_law'); ct[9].qualifications.push('pos_law');
     // Trainees: one call-taker still with a CTO (doesn't count), one law dispatcher solo-cleared.
-    Object.assign(ct[1], { status: 'trainee', soloCleared: false, hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
+    Object.assign(ct[1], { status: 'trainee', soloCleared: false, soloDate: fmtDate(today + 75), hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
     Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
     // Part-time staff: straight time, capped hours. Two call-takers on part-time lines
     // covering the weekend peak, one law dispatcher who only picks up open shifts.
@@ -1428,6 +1526,7 @@
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
     jobClasses, jobClassOf, jobClassById, classMembers, classConsoles, empClass, lineClass, bidClass, certifications,
     schedulingDayStart, shiftBlocks, schedulingDayOf, importWindows,
+    staffingLevel, levelRule, maxOffFor, projectLevels, onExtendedLeave, soloOn, LEVELS, EXTENDED_LEAVE,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,

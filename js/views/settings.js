@@ -60,6 +60,22 @@
           <div class="field" style="margin-top:8px"><label>Mandatory (forced) OT order</label><select data-change="center" data-k="forceOrderBasis">
             <option value="lastOT" ${c.forceOrderBasis !== 'lastForced' ? 'selected' : ''}>Longest since any OT worked, then least senior</option>
             <option value="lastForced" ${c.forceOrderBasis === 'lastForced' ? 'selected' : ''}>Longest since last forced, then least senior</option></select></div>
+          <h3 style="margin-top:12px">Staffing levels &amp; balancing</h3>
+          <div class="form-grid">
+            <div class="field"><label>Normal at or above (% of authorized)</label>${num('levelNormalPct', 1)}</div>
+            <div class="field"><label>Short at or above (below is Critical)</label>${num('levelShortPct', 1)}</div>
+            <div class="field"><label>Notice for changing days off (days)</label>${num('dayOffNoticeDays', 1)}</div>
+          </div>
+          <table class="small"><thead><tr><th>Level</th><th title="People above minimum per console-hour that's acceptable">Relief margin</th><th title="Most people off per day in a job class; blank = the job class's own limit">Vacation limit / day</th><th>Balancer</th></tr></thead><tbody>
+            ${['normal', 'short', 'critical'].map((lv) => { const r = (c.levelRules || {})[lv] || {}; return `<tr><td>${App.levelBadge({ level: lv, effective: 0, authorized: 0, pct: null })}</td>
+              <td><input type="number" min="0" step="1" value="${esc(r.reliefMargin ?? '')}" data-change="level-rule" data-lv="${lv}" data-f="reliefMargin" style="width:70px" ${lv === 'normal' ? '' : 'title="Short and Critical always use 0 when balancing"'}></td>
+              <td><input type="number" min="0" step="1" value="${esc(r.maxOffPerDay ?? '')}" placeholder="class" data-change="level-rule" data-lv="${lv}" data-f="maxOffPerDay" style="width:70px"></td>
+              <td class="small muted">${lv === 'normal' ? 'Keeps the relief margin' : lv === 'short' ? 'Margin 0; part-timers before OT' : 'Minimums only; spreads gaps evenly; lists OT needed'}</td></tr>`; }).join('')}
+          </tbody></table>
+          <label class="check">${chk('levelIncludesPartTime')} Part-time FTE counts toward the staffing level</label>
+          <div class="field" style="margin-top:6px"><label>Part-timers' scheduled lines</label><select data-change="center" data-k="partTimeOnLines">
+            <option value="count" ${c.partTimeOnLines !== 'extra' ? 'selected' : ''}>Count toward minimums</option>
+            <option value="extra" ${c.partTimeOnLines === 'extra' ? 'selected' : ''}>Are extra, on top of minimums (shifts they pick up still count)</option></select></div>
           <h3 style="margin-top:12px">Part-time staff</h3>
           <label class="check">${chk('partTimeFirst')} Offer open shifts to part-timers first (straight time, before full-time OT)</label>
           <div class="form-grid"><div class="field"><label>Default weekly cap (h)</label>${num('partTimeDefaultCap', 0.5)}</div></div>
@@ -134,6 +150,12 @@
   }
   App.actions['audit-load'] = () => App.api('GET', '/api/audit?limit=300').then((r) => { App.ui.audit = r.entries; App.render(); }).catch((e) => App.toast(e.message, true));
 
+  App.changes['level-rule'] = (el) => App.commit((s) => {
+    const rules = JSON.parse(JSON.stringify(s.center.levelRules || {}));
+    rules[el.dataset.lv] = Object.assign({}, rules[el.dataset.lv]);
+    rules[el.dataset.lv][el.dataset.f] = el.value === '' ? '' : Math.max(0, +el.value);
+    s.center.levelRules = rules;
+  }, 'Saved');
   App.changes['center'] = (el) => App.commit((s) => {
     const k = el.dataset.k;
     s.center[k] = el.dataset.type === 'num' ? +el.value : el.dataset.type === 'bool' ? el.checked : el.value;

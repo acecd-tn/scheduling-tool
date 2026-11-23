@@ -120,6 +120,21 @@ and after. That matters for grievances and payroll disputes.
   day start (default: the earliest regular shift, e.g. 0700) to the same time next
   day, grouped by shift (e.g. 0700-1900, 1900-0700). Pins hold a person on a console
   for their shift on that scheduling day.
+- **Staffing levels.** Effective staffing per job class = full-time filled, minus people
+  on extended leave (FMLA, military, injury, LOA) and trainees not yet solo, plus
+  part-time FTE (setting), as a % of authorized: Normal (≥90%), Short (75–89%),
+  Critical (<75%), thresholds editable. Shown on the Dashboard and Staff page with a
+  6-month outlook from solo dates and leave return dates; a notice appears when a
+  level changes. Each level has its own relief margin and daily vacation limit.
+- **Schedule balancer.** *Suggest lines* (Lines & Bid, and inside a shift bid) proposes
+  40-hour lines for a job class that cover every hour of its consoles at minimum first,
+  then keep hours above minimum to the relief margin; compare before/after, then use
+  them in a bid or apply them to current lines (holders keep the closest new line and
+  are notified). *Balance a week* (Openings, or Schedule → Balance this week) suggests
+  moving days off from surplus days to gap days within the same work week, respecting
+  rest rules and the notice period, then offers remaining gaps to part-timers under
+  their cap, then lists what still needs overtime with the cost. Nothing changes until
+  a supervisor approves; the employee is notified.
 - **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
   (or calendar days), and a daily limit per job class (default 1). Each pick is
   approved immediately; a calendar shows full days. The same per-job-class limit
@@ -153,6 +168,7 @@ index.html, css/        web app
 js/core.js              scheduling / coverage / OT / bid engine (no DOM; unit tested)
 js/actions.js           workflow rules (requests, trades, postings, bids); run by the server
 js/importer.js          reads and imports an existing schedule grid
+js/balancer.js          line suggestions and week balancing
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page
 server/server.js        HTTP server, auth, SQLite storage, audit, live updates

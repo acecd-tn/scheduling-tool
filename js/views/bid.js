@@ -45,7 +45,7 @@
     return `<div class="panel">
       <div class="page-head" style="margin-bottom:8px"><div class="pill-list">${summary}</div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${u.showPast ? 'checked' : ''} data-change="lines-past"> Show ended lines</label>
-        <button class="btn" data-action="line-add">+ Line</button><button class="btn primary" data-action="line-gen" data-target="current">Generate lines…</button></div></div>
+        <button class="btn" data-action="line-add">+ Line</button><button class="btn" data-action="line-gen" data-target="current">Generate lines…</button><button class="btn primary" data-action="sug-open">Suggest lines…</button></div></div>
       ${unassignedEmps.length ? `<div class="callout warn">No line assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
       ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant line(s) — these produce structural openings until filled.</div>` : ''}
       <div class="table-wrap"><table><thead><tr><th>Line</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
@@ -98,6 +98,7 @@
     return h > 0.01 ? ` <span class="badge bad" title="This line is scheduled over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day periods">+${hrs(h)} OT h/yr</span>` : '';
   }
 
+  App.actions['sug-open'] = (el) => App.openSuggest({ bidId: el.dataset.bid || null });
   App.actions['bid-tab'] = (el) => { App.ui.bid.tab = el.dataset.tab; App.render(); };
   App.changes['lines-past'] = (el) => { App.ui.bid.showPast = el.checked; App.render(); };
   App.changes['line-field'] = (el) => {
@@ -214,7 +215,7 @@
       <h2>${esc(bid.name)} — ${esc(jc ? jc.name : '?')}${pids.length > 1 ? ` <span class="small muted">(${pids.map((x) => esc(App.posName(x))).join(' + ')})</span>` : ''}, effective ${P.shortDate(eff)}
         <span class="toolbar">${bid.status === 'draft' ? '<button class="btn sm primary" data-action="bid-status" data-s="open">Open bidding</button>' : ''}
         ${bid.status === 'open' ? `<button class="btn sm" data-action="bid-skip" ${cur ? '' : 'disabled'}>Skip current</button><button class="btn sm" data-action="bid-auto">Auto-assign remaining</button><button class="btn sm" data-action="bid-status" data-s="draft">Back to draft</button>` : ''}
-        ${editable ? '<button class="btn sm" data-action="line-gen" data-target="bid">+ Generate lines</button><button class="btn sm" data-action="bid-copy-current">+ Copy current lines</button>' : ''}
+        ${editable ? '<button class="btn sm primary" data-action="sug-open" data-bid="' + bid.id + '">Suggest lines…</button><button class="btn sm" data-action="line-gen" data-target="bid">+ Generate lines</button><button class="btn sm" data-action="bid-copy-current">+ Copy current lines</button>' : ''}
         ${bid.status !== 'applied' ? '<button class="btn sm primary" data-action="bid-apply">Apply to schedule</button>' : '<span class="badge ok">Applied</span>'}
         <button class="btn sm" data-action="print" title="Print or save as PDF">Print</button></span></h2>
       <div class="kpis">

@@ -87,6 +87,7 @@
           <input type="date" value="${P.fmtDate(from)}" data-change="sched-date">
           <select data-change="sched-days">${App.opts([{ id: 7, name: '1 week' }, { id: 14, name: '2 weeks' }, { id: 28, name: '4 weeks' }], u.days)}</select>
           <select data-change="sched-pos"><option value="all">All job classes</option>${App.opts(P.jobClasses(st), u.pos)}</select>
+          ${App.isSup() ? '<button class="btn" data-action="sched-balance" title="Suggest day-off moves and part-time offers for this week">Balance this week</button>' : ''}
           <button class="btn" data-action="print" title="Print or save as PDF">Print</button>
         </div></div>
       <div class="panel"><div class="legend" style="margin-bottom:8px">
@@ -121,6 +122,12 @@
     return h;
   }
 
+  App.actions['sched-balance'] = () => {
+    const d = App.ui.sched.start;
+    App.ui.bal.week = d - P.dow(d);
+    App.go('openings');
+    setTimeout(() => App.runBalance(), 0);
+  };
   App.actions['sched-move'] = (el) => { App.ui.sched.start += (+el.dataset.dir) * App.ui.sched.days; App.render(); };
   App.actions['sched-today'] = () => { App.ui.sched.start = P.periodOf(S(), P.todayNum()).start; App.render(); };
   App.changes['sched-date'] = (el) => { if (el.value) { App.ui.sched.start = P.parseDate(el.value); App.render(); } };
@@ -154,6 +161,7 @@
     return `
       <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · line ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
         · ${esc((P.empClass(st, emp) || {}).name || 'no job class')} · certified: ${P.certifications(emp).map((q) => esc(App.posName(q))).join(', ') || 'none'}</p>
+      ${(st.shiftMoves || []).filter((m) => m.status === 'approved' && m.employeeId === empId && (P.parseDate(m.offDate) === day || P.parseDate(m.workDate) === day)).map((m) => `<div class="callout">Day-off move: off ${P.shortDate(P.parseDate(m.offDate))}, works ${P.shortDate(P.parseDate(m.workDate))} instead. <button class="btn sm" data-action="bal-undo" data-id="${m.id}">Undo</button></div>`).join('')}
       ${(() => {
         const im = (st.scheduleImports || []).find((x) => (x.employeeIds || []).includes(empId) && P.parseDate(x.from) <= day && day <= P.parseDate(x.to));
         if (!im) return '';

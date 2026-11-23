@@ -32,3 +32,11 @@ test('install.ps1 does not pass quoted node arguments through nssm set', () => {
   assert.ok(!/nssm\S*\s+set\s+\S+\s+AppParameters/i.test(src.replace(/#.*$/gm, '')), 'write AppParameters to the registry instead');
   assert.match(src, /Name 'AppParameters'/);
 });
+
+test('every browser script parses (a syntax error stops a whole page from loading)', () => {
+  const { execFileSync } = require('node:child_process');
+  const root = path.join(__dirname, '..', 'js');
+  const files = fs.readdirSync(root).filter((f) => f.endsWith('.js')).map((f) => path.join(root, f))
+    .concat(fs.readdirSync(path.join(root, 'views')).map((f) => path.join(root, 'views', f)));
+  for (const f of files) execFileSync(process.execPath, ['--check', f], { stdio: 'pipe' });
+});
