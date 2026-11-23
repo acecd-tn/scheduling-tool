@@ -4,8 +4,11 @@ This guide is for the county IT staff who will host PSAP Scheduler. It covers a 
 Windows Server running the app as an always-on service, HTTPS through IIS, nightly
 backups, updates and troubleshooting.
 
-> The PowerShell scripts in `scripts\windows\` have **not yet been run on a Windows
-> machine**. Try them on a test server first. Every step they automate is also listed
+> The PowerShell scripts in `scripts\windows\` are written for **Windows PowerShell
+> 5.1** (built into Windows Server) and PowerShell 7. The first test on Windows Server
+> found a 5.1 bug in `install.ps1`, now fixed (see
+> [Troubleshooting](#troubleshooting)). The fixed version hasn't been re-run on Windows
+> yet, so try it on a test server first. Every step the scripts automate is also listed
 > here so it can be done by hand.
 
 ## What you need
@@ -90,7 +93,8 @@ cd C:\PSAP\app
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\install.ps1 -BehindIIS
 ```
 
-Use `-BehindIIS` when you'll set up HTTPS in IIS (Step 5). The app then listens only
+`-AppDir` is optional: it defaults to the app folder the script sits in
+(`C:\PSAP\app` here). Use `-BehindIIS` when you'll set up HTTPS in IIS (Step 5). The app then listens only
 on 127.0.0.1 and marks its sign-in cookie HTTPS-only.
 
 The script:
@@ -106,6 +110,7 @@ Useful options:
 
 | Option | Default | |
 |---|---|---|
+| `-AppDir` | the script's app folder | Only needed if you run the script from somewhere else. |
 | `-DataDir` | `C:\PSAP\data` | Put the database on a different drive, e.g. `D:\PSAP\data`. |
 | `-BackupDir` | `C:\PSAP\backups` | Can be a UNC share: `\\fileserver\backups\psap`. |
 | `-KeepBackups` | `30` | How many nightly copies to keep. |
@@ -233,6 +238,9 @@ backup makes the task fail in Task Scheduler, so it can alert.
 4. If you used a ZIP: `Get-ChildItem C:\PSAP\app -Recurse | Unblock-File`
 5. Start the service and sign in to check.
 
+If the update changed `scripts\windows\install.ps1`, re-run it after step 3. It is
+safe to re-run: it updates the existing service and backup task.
+
 Keep **Node.js** patched as well: install the newest 22.x/24.x LTS .msi over the old
 one during a maintenance window, then restart the service. Windows Updates as usual.
 
@@ -259,6 +267,7 @@ one during a maintenance window, then restart the service. Windows Updates as us
 
 | Symptom | Fix |
 |---|---|
+| `Join-Path : Cannot bind argument to parameter 'Path' because it is an empty string` (install.ps1 line 33) | You have the first version of `install.ps1`, which doesn't work on Windows PowerShell 5.1. Get the current `scripts\windows\install.ps1`, or work around it by passing the app folder yourself: `powershell -ExecutionPolicy Bypass -File .\scripts\windows\install.ps1 -AppDir C:\PSAP\app -BehindIIS` |
 | `node` is not recognized | Open a new PowerShell after installing Node.js. If the service can't find it, reinstall Node.js "for all users" or pass the full path (`-NssmPath`/script uses `Get-Command node`). |
 | Script says it "cannot be loaded … not digitally signed" | Unblock the files (Step 2) and run with `powershell -ExecutionPolicy Bypass -File …`. |
 | `Port 8080 is already in use` in the log | Another program (or a second copy of the app) uses it. Stop it, or change `port` in the config **and** in the IIS `web.config`. |

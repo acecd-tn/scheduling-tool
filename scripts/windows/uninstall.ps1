@@ -13,11 +13,27 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 
-if (-not $NssmPath) { $NssmPath = (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source }
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Write-Host 'Run this from an elevated PowerShell (right-click > Run as administrator).' -ForegroundColor Red
+  exit 1
+}
+
+if (-not $NssmPath) {
+  $c = Get-Command nssm.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($c) { $NssmPath = $c.Source }
+}
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-  if ($NssmPath) { & $NssmPath stop $ServiceName confirm | Out-Null; & $NssmPath remove $ServiceName confirm | Out-Null }
-  else { Stop-Service -Name $ServiceName -Force; sc.exe delete $ServiceName | Out-Null }
-  Write-Host "Removed service $ServiceName"
+  if ($NssmPath) {
+    & $NssmPath stop $ServiceName confirm 2>&1 | Out-Null
+    & $NssmPath remove $ServiceName confirm 2>&1 | Out-Null
+  } else {
+    Stop-Service -Name $ServiceName -Force
+    & sc.exe delete $ServiceName 2>&1 | Out-Null
+  }
+  if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    Write-Host "Service $ServiceName is marked for removal. It disappears once Services (services.msc) is closed, or after a restart." -ForegroundColor Yellow
+  } else { Write-Host "Removed service $ServiceName" }
 }
 foreach ($t in @($ServiceName, "$ServiceName Backup")) {
   if (Get-ScheduledTask -TaskName $t -ErrorAction SilentlyContinue) {

@@ -24,13 +24,15 @@
 .EXAMPLE
   .\install.ps1                                   # defaults: port 8080, data in C:\PSAP\data
 .EXAMPLE
+  .\install.ps1 -AppDir C:\PSAP\app -BehindIIS       # -AppDir is optional; it defaults to the folder this script is in
+.EXAMPLE
   .\install.ps1 -BehindIIS                         # listen on 127.0.0.1 only; IIS provides HTTPS
 .EXAMPLE
   .\install.ps1 -DataDir D:\PSAP\data -BackupDir \\fileserver\backups\psap -OpenFirewall
 #>
 [CmdletBinding()]
 param(
-  [string]$AppDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path,
+  [string]$AppDir = '',          # default: two folders up from this script (set below)
   [string]$ConfigFile = 'C:\PSAP\psap.config.json',
   [string]$DataDir = 'C:\PSAP\data',
   [string]$LogDir = 'C:\PSAP\logs',
@@ -46,9 +48,37 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Default -AppDir after the param block: in Windows PowerShell 5.1, $PSScriptRoot
+# is empty while parameter defaults are evaluated.
+if (-not $AppDir) {
+  $scriptDir = $PSScriptRoot
+  if (-not $scriptDir -and $MyInvocation.MyCommand.Path) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+  if (-not $scriptDir) { throw 'Cannot tell where this script is. Pass -AppDir, e.g. -AppDir C:\PSAP\app' }
+  $AppDir = (Resolve-Path (Join-Path $scriptDir '..\..')).Path
+}
+$AppDir = (Resolve-Path $AppDir).Path
+
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Ok($msg) { Write-Host "    $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "    $msg" -ForegroundColor Yellow }
+
+# First match only: Get-Command can return several when a program is on PATH twice.
+function Find-Exe($name) {
+  $c = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($c) { return $c.Source }
+  return $null
+}
+
+# Run a native program without letting its stderr stop the script (some hosts turn
+# native stderr into terminating errors when $ErrorActionPreference is 'Stop').
+# Returns the exit code.
+function Invoke-Native([string]$exe, [string[]]$arguments) {
+  $old = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $exe @arguments 2>&1 | Out-Null; return $LASTEXITCODE }
+  finally { $ErrorActionPreference = $old }
+}
 
 # --- must be elevated -------------------------------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -58,10 +88,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 # --- 1. Node.js ---------------------------------------------------------------
 Step 'Checking Node.js'
-$node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+$node = Find-Exe 'node.exe'
 if (-not $node) { throw 'Node.js is not installed. Install the Node.js LTS (22 or newer) Windows Installer (.msi) from nodejs.org, then re-run.' }
-$ver = (& $node -v).TrimStart('v')
-$parts = $ver.Split('.') | ForEach-Object { [int]$_ }
+$ver = ([string](& $node -v)).Trim().TrimStart('v')
+$parts = @($ver.Split('.') | ForEach-Object { [int]$_ })
 if ($parts[0] -lt 22 -or ($parts[0] -eq 22 -and $parts[1] -lt 13)) { throw "Node.js $ver is too old. Install 22.13 or newer (LTS)." }
 Ok "Node.js $ver at $node"
 $serverJs = Join-Path $AppDir 'server\server.js'
@@ -99,29 +129,68 @@ if (-not $BehindIIS) { Warn 'Without -BehindIIS the app is plain HTTP. Put HTTPS
 
 # --- 4. run at boot -------------------------------------------------------------
 $nodeArgs = "--no-warnings=ExperimentalWarning `"$serverJs`" --config `"$cfgFile`""
-if (-not $NssmPath) { $NssmPath = (Get-Command nssm.exe -ErrorAction SilentlyContinue).Source }
-if ($NssmPath -and -not $UseScheduledTask) {
+if (-not $NssmPath) { $NssmPath = Find-Exe 'nssm.exe' }
+$useNssm = [bool]$NssmPath -and -not $UseScheduledTask
+$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+$existingTask = Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+
+if ($useNssm) {
   Step "Installing Windows service '$ServiceName' with NSSM"
-  $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-  if ($existing) { & $NssmPath stop $ServiceName confirm | Out-Null } else { & $NssmPath install $ServiceName $node | Out-Null }
-  & $NssmPath set $ServiceName Application $node | Out-Null
-  & $NssmPath set $ServiceName AppParameters $nodeArgs | Out-Null
-  & $NssmPath set $ServiceName AppDirectory $AppDir | Out-Null
-  & $NssmPath set $ServiceName DisplayName 'PSAP Scheduler' | Out-Null
-  & $NssmPath set $ServiceName Description 'PSAP Scheduler web server' | Out-Null
-  & $NssmPath set $ServiceName Start SERVICE_AUTO_START | Out-Null
-  & $NssmPath set $ServiceName AppStdout (Join-Path $LogDir 'server.log') | Out-Null
-  & $NssmPath set $ServiceName AppStderr (Join-Path $LogDir 'server.log') | Out-Null
-  & $NssmPath set $ServiceName AppRotateFiles 1 | Out-Null
-  & $NssmPath set $ServiceName AppRotateOnline 1 | Out-Null
-  & $NssmPath set $ServiceName AppRotateBytes 10485760 | Out-Null
-  & $NssmPath set $ServiceName AppExit Default Restart | Out-Null
-  & $NssmPath set $ServiceName AppRestartDelay 5000 | Out-Null
-  & $NssmPath set $ServiceName AppStopMethodConsole 5000 | Out-Null
-  & $NssmPath start $ServiceName | Out-Null
+  if ($existingTask) {
+    # Switching from the startup-task method: remove it so two copies don't fight over the port.
+    Stop-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
+    Warn 'Removed the old startup task.'
+  }
+  if ($existingService) {
+    Invoke-Native $NssmPath @('stop', $ServiceName, 'confirm') | Out-Null
+  } else {
+    $code = Invoke-Native $NssmPath @('install', $ServiceName, $node)
+    if ($code -ne 0) { throw "nssm install failed (exit code $code)." }
+  }
+  $settingsList = @(
+    @('Application', $node),
+    @('AppDirectory', $AppDir),
+    @('DisplayName', 'PSAP Scheduler'),
+    @('Description', 'PSAP Scheduler web server'),
+    @('Start', 'SERVICE_AUTO_START'),
+    @('AppStdout', (Join-Path $LogDir 'server.log')),
+    @('AppStderr', (Join-Path $LogDir 'server.log')),
+    @('AppRotateFiles', '1'),
+    @('AppRotateOnline', '1'),
+    @('AppRotateBytes', '10485760'),
+    @('AppRestartDelay', '5000'),
+    @('AppStopMethodConsole', '5000')
+  )
+  foreach ($kv in $settingsList) {
+    $code = Invoke-Native $NssmPath @('set', $ServiceName, $kv[0], $kv[1])
+    if ($code -ne 0) { throw "nssm set $($kv[0]) failed (exit code $code)." }
+  }
+  Invoke-Native $NssmPath @('set', $ServiceName, 'AppExit', 'Default', 'Restart') | Out-Null
+  # The node arguments contain quoted paths. Windows PowerShell 5.1 does not escape
+  # embedded quotes when calling native programs, so write them straight to the
+  # service's registry key (where NSSM reads them) instead of via 'nssm set'.
+  $paramKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+  if (-not (Test-Path $paramKey)) { New-Item -Path $paramKey -Force | Out-Null }
+  New-ItemProperty -Path $paramKey -Name 'AppParameters' -Value $nodeArgs -PropertyType ExpandString -Force | Out-Null
+  $code = Invoke-Native $NssmPath @('start', $ServiceName)
+  if ($code -ne 0) { Warn "nssm start returned exit code $code. Check services.msc and $(Join-Path $LogDir 'server.log')." }
   Ok "Service installed. Manage it in services.msc or with: nssm restart $ServiceName"
 } else {
   Step "Registering startup task '$ServiceName' (Task Scheduler)"
+  if ($existingService) {
+    # Switching from an NSSM service: remove it so two copies don't fight over the port.
+    $nssmForRemoval = $NssmPath
+    if (-not $nssmForRemoval) { $nssmForRemoval = Find-Exe 'nssm.exe' }
+    if ($nssmForRemoval) {
+      Invoke-Native $nssmForRemoval @('stop', $ServiceName, 'confirm') | Out-Null
+      Invoke-Native $nssmForRemoval @('remove', $ServiceName, 'confirm') | Out-Null
+    } else {
+      Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+      Invoke-Native 'sc.exe' @('delete', $ServiceName) | Out-Null
+    }
+    Warn "Removed the existing '$ServiceName' service."
+  }
   $wrapper = Join-Path $AppDir 'scripts\windows\run-server.cmd'
   $cmd = "@echo off`r`ncd /d `"$AppDir`"`r`n`"$node`" $nodeArgs >> `"$(Join-Path $LogDir 'server.log')`" 2>&1`r`n"
   [IO.File]::WriteAllText($wrapper, $cmd, (New-Object Text.ASCIIEncoding))
@@ -130,7 +199,7 @@ if ($NssmPath -and -not $UseScheduledTask) {
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
   $taskPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-  if (Get-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue) {
+  if ($existingTask) {
     Stop-ScheduledTask -TaskName $ServiceName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $ServiceName -Confirm:$false
   }
@@ -174,7 +243,12 @@ $ok = $false
 for ($i = 0; $i -lt 20 -and -not $ok; $i++) {
   Start-Sleep -Seconds 1
   try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/me" -TimeoutSec 3 | Out-Null; $ok = $true }
-  catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 401) { $ok = $true } }
+  catch {
+    # 401 means the app is up and asking for sign-in. Works for Windows PowerShell 5.1
+    # (WebException/HttpWebResponse) and PowerShell 7 (HttpResponseException).
+    $resp = $_.Exception.Response
+    if ($resp -and [int]$resp.StatusCode -eq 401) { $ok = $true }
+  }
 }
 if ($ok) {
   Ok "Running: http://localhost:$Port"
