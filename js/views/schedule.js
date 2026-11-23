@@ -36,6 +36,7 @@
       // Group employees by job class, then by their primary shift.
       const lineOf = (emp) => st.lines.find((l) => l.employeeId === emp.id && P.lineActiveOn(l, Math.max(from, Math.min(to, today))))
         || st.lines.find((l) => l.employeeId === emp.id && P.lineActiveOn(l, from));
+      const impWin = P.importWindows(st);
       const classes = P.jobClasses(st);
       const clsOrder = {}; classes.forEach((c, i) => { clsOrder[c.id] = i; });
       const clsId = (e) => (P.empClass(st, e) || {}).id || '';
@@ -56,7 +57,7 @@
         const flags = [];
         if (r.e.status === 'trainee') flags.push(`<span class="badge ${r.e.soloCleared ? 'info' : 'warn'}" title="${r.e.soloCleared ? 'Solo cleared' : 'With CTO — not counted'}">T</span>`);
         if (r.e.status === 'leave') flags.push('<span class="badge bad">LOA</span>');
-        body += `<tr><td class="name">${esc(P.empName(r.e))} ${flags.join('')}<span class="small muted">${r.ln ? esc(r.ln.name) : 'no line'}</span></td>`;
+        body += `<tr><td class="name">${esc(P.empName(r.e))} ${flags.join('')}<span class="small muted">${impWin[r.e.id] && impWin[r.e.id].some(([a, b]) => a <= to && b >= from) ? '<span class="badge info" title="Imported schedule for some of these dates">imported</span> ' : ''}${r.ln ? esc(r.ln.name) : impWin[r.e.id] ? '' : 'no line'}</span></td>`;
         for (const d of days) {
           const k = r.e.id + '|' + d;
           body += `<td class="cell ${[0, 6].includes(P.dow(d)) ? 'wknd' : ''}" data-action="day-cell" data-emp="${r.e.id}" data-day="${d}">${cellHtml(regBy[k], excBy[k], fillBy[k], ix)}</td>`;
@@ -153,6 +154,12 @@
     return `
       <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · line ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
         · ${esc((P.empClass(st, emp) || {}).name || 'no job class')} · certified: ${P.certifications(emp).map((q) => esc(App.posName(q))).join(', ') || 'none'}</p>
+      ${(() => {
+        const im = (st.scheduleImports || []).find((x) => (x.employeeIds || []).includes(empId) && P.parseDate(x.from) <= day && day <= P.parseDate(x.to));
+        if (!im) return '';
+        const cur = (st.assignments || []).find((a) => a.employeeId === empId && P.parseDate(a.date) === day && !a.leave);
+        return `<div class="callout">From the imported schedule "${esc(im.name)}". Shift this day: <select data-change="imp-day" data-emp="${empId}" data-day="${day}" data-imp="${im.id}"><option value="">Off</option>${App.opts(st.shiftTemplates, cur ? cur.templateId : '', (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select></div>`;
+      })()}
       ${excs.length || fills.length ? `<table><tbody>
         ${excs.map((e) => `<tr><td>${esc(App.excType(e.type).label)} ${statusBadge(e.status)}<div class="small muted">${e.endDate ? `${e.date} → ${e.endDate}` : e.date}${e.start ? ` · ${e.start} for ${e.hours}h` : ' · full shift'}${e.note ? ' · ' + esc(e.note) : ''}</div></td>
           <td class="nowrap" style="text-align:right">${e.status === 'pending' ? `<button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="approved">Approve</button> <button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="denied">Deny</button> ` : ''}<button class="btn sm danger" data-action="exc-del" data-id="${e.id}">Remove</button></td></tr>`).join('')}
@@ -210,6 +217,12 @@
     const f = App.modalForm();
     App.act('assignFill', { fill: { date: P.fmtDate(+el.dataset.day), start: f.otStart, hours: +f.otHours, positionId: f.otPos, employeeId: el.dataset.emp, type: f.otType, reason: f.otReason || 'vacancy', exceptionId: null } });
   };
+  // Change one day of an imported schedule.
+  App.changes['imp-day'] = (el) => App.commit((s) => {
+    const date = P.fmtDate(+el.dataset.day);
+    s.assignments = (s.assignments || []).filter((a) => !(a.employeeId === el.dataset.emp && a.date === date && !a.leave));
+    if (el.value) s.assignments.push({ id: P.uid('as'), importId: el.dataset.imp, employeeId: el.dataset.emp, date, templateId: el.value, code: 'edited' });
+  }, el.value ? 'Shift changed for this day' : 'Set to off for this day');
   App.actions['exc-status'] = (el) => App.act('decideLeave', { id: el.dataset.id, status: el.dataset.status });
   App.actions['exc-del'] = (el) => App.commit((s) => { s.exceptions = s.exceptions.filter((x) => x.id !== el.dataset.id); }, 'Removed');
   App.actions['fill-del'] = (el) => App.commit((s) => { s.fills = s.fills.filter((x) => x.id !== el.dataset.id); }, 'OT removed');

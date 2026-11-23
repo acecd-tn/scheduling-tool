@@ -108,6 +108,18 @@ and after. That matters for grievances and payroll disputes.
 - **Shift bid.** Per job class: generate the class's lines, bid in seniority order (employees pick on their own
   turn and are notified when it arrives), preview coverage across all consoles the
   class staffs, then apply on an effective date.
+- **Import an existing schedule.** Lines & Bid → Import schedule. Paste the grid from
+  your spreadsheet (names down the side, dates across the top, a code per cell) or
+  upload a CSV. Names are matched to employees; codes are guessed (OFF, times like
+  0700-1900, VAC/SL/TRN and other leave codes) and you confirm the rest. For the
+  imported people and dates, the imported days replace their lines; leave codes
+  become approved leave on their usual shift. Lines take over after the last
+  imported date. Single days can be changed from the Schedule page; a whole import
+  can be undone.
+- **Scheduling day.** Consoles, Coverage and the Dashboard run from the scheduling
+  day start (default: the earliest regular shift, e.g. 0700) to the same time next
+  day, grouped by shift (e.g. 0700-1900, 1900-0700). Pins hold a person on a console
+  for their shift on that scheduling day.
 - **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
   (or calendar days), and a daily limit per job class (default 1). Each pick is
   approved immediately; a calendar shows full days. The same per-job-class limit
@@ -140,6 +152,7 @@ single sign-on can be added later without changing the rest of the app.
 index.html, css/        web app
 js/core.js              scheduling / coverage / OT / bid engine (no DOM; unit tested)
 js/actions.js           workflow rules (requests, trades, postings, bids); run by the server
+js/importer.js          reads and imports an existing schedule grid
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page
 server/server.js        HTTP server, auth, SQLite storage, audit, live updates

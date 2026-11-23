@@ -146,6 +146,12 @@ function auditDetail(before, diff, extra) {
   }
   for (const [k, ids] of Object.entries(diff.deletes)) for (const id of ids) changes.push({ kind: k, id, op: 'delete', before: idx[k][id] || null });
   for (const k of Object.keys(diff.config)) changes.push({ kind: 'config', id: k, op: 'update', before: before[k], after: diff.config[k] });
+  // Very large edits (e.g. a schedule import): keep counts, not every record.
+  if (changes.length > 200) {
+    const summary = {};
+    for (const c of changes) { const key = `${c.op} ${c.kind}`; summary[key] = (summary[key] || 0) + 1; }
+    return JSON.stringify(Object.assign({ changes: changes.filter((c) => c.kind === 'scheduleImports' || c.kind === 'config'), summary, total: changes.length }, extra || {}));
+  }
   return JSON.stringify(Object.assign({ changes }, extra || {}));
 }
 

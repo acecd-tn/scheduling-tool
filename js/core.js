@@ -44,7 +44,7 @@
     { id: 'trade', label: 'Shift trade (straight time)' },
   ];
   const COLLECTIONS = ['positions', 'jobClasses', 'shiftTemplates', 'patterns', 'employees', 'lines', 'exceptions', 'fills', 'bids',
-    'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins'];
+    'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins', 'assignments', 'scheduleImports'];
 
   const STATUSES = [
     { id: 'active', label: 'Active' },
@@ -160,6 +160,8 @@
       vacationBids: [],
       notifications: [],
       pins: [],
+      assignments: [],      // day-by-day shifts from an imported schedule
+      scheduleImports: [],  // each import: who and which dates it covers
     };
   }
 
@@ -376,9 +378,24 @@
     return ix.tpl[tok] || null;
   }
 
-  /** Scheduled (pre-exception) shifts from the line assignments. */
+  /** Per employee, the date ranges an imported schedule covers (where it replaces their lines). */
+  function importWindows(state) {
+    const win = {};
+    for (const im of state.scheduleImports || []) {
+      const a = parseDate(im.from), b = parseDate(im.to);
+      for (const id of im.employeeIds || []) (win[id] ||= []).push([a, b]);
+    }
+    return win;
+  }
+
+  /**
+   * Scheduled (pre-exception) shifts: from lines, except where an imported schedule
+   * covers the person and date, in which case the imported day's shift is used.
+   */
   function regularShifts(state, fromDay, toDay, ix = index(state)) {
     const out = [];
+    const win = importWindows(state);
+    const imported = (empId, d) => { const w = win[empId]; return !!w && w.some(([a, b]) => d >= a && d <= b); };
     for (const line of state.lines) {
       if (!line.employeeId) continue;
       const emp = ix.emp[line.employeeId];
@@ -386,6 +403,7 @@
       const a = Math.max(fromDay, parseDate(line.effectiveFrom));
       const b = Math.min(toDay, line.effectiveTo ? parseDate(line.effectiveTo) : Infinity);
       for (let d = a; d <= b; d++) {
+        if (win[emp.id] && imported(emp.id, d)) continue;
         const tpl = lineShiftOn(line, d, ix);
         if (!tpl) continue;
         const start = d * DAY + parseTime(tpl.start);
@@ -395,6 +413,17 @@
           end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: line.id, kind: 'regular',
         });
       }
+    }
+    for (const as of state.assignments || []) {
+      const d = parseDate(as.date);
+      if (d < fromDay || d > toDay) continue;
+      const emp = ix.emp[as.employeeId], tpl = ix.tpl[as.templateId];
+      if (!emp || emp.status === 'inactive' || !tpl) continue;
+      const start = d * DAY + parseTime(tpl.start);
+      out.push({
+        employeeId: emp.id, positionId: emp.positionId || certifications(emp)[0] || null, day: d, start,
+        end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: null, assignmentId: as.id, importId: as.importId || null, kind: 'regular',
+      });
     }
     return out;
   }
@@ -1398,7 +1427,7 @@
   const api = {
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
     jobClasses, jobClassOf, jobClassById, classMembers, classConsoles, empClass, lineClass, bidClass, certifications,
-    schedulingDayStart, shiftBlocks, schedulingDayOf,
+    schedulingDayStart, shiftBlocks, schedulingDayOf, importWindows,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,

@@ -11,9 +11,9 @@
     render(st, ui) {
       if (!App.isSup()) return employeeBid(st);
       const u = ui.bid;
-      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current lines</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button></div>`;
+      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current lines</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button><button class="${u.tab === 'import' ? 'on' : ''}" data-action="bid-tab" data-tab="import">Import schedule${(st.scheduleImports || []).length ? ` (${st.scheduleImports.length})` : ''}</button></div>`;
       return `<div class="page-head"><div><h1>Lines & Shift Bid</h1><p>A line = job class + shift + rotation pattern + start date. Mix 8, 10 and 12-hour lines freely; switch schedules by bidding a new set of lines with an effective date.</p></div></div>
-        ${tabs}${u.tab === 'lines' ? linesTab(st, u) : bidsTab(st, u)}`;
+        ${tabs}${u.tab === 'lines' ? linesTab(st, u) : u.tab === 'import' ? App.importTab(st) : bidsTab(st, u)}`;
     },
   };
 
@@ -31,7 +31,9 @@
     const clsOf = (l) => P.lineClass(st, l);
     lines.sort((a, b) => (clsOrder[(clsOf(a) || {}).id] ?? 99) - (clsOrder[(clsOf(b) || {}).id] ?? 99) || String(a.name).localeCompare(b.name, undefined, { numeric: true }));
     const assigned = new Set(st.lines.filter((l) => l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today)).map((l) => l.employeeId));
-    const unassignedEmps = st.employees.filter((e) => e.status !== 'inactive' && !assigned.has(e.id));
+    const impWin = P.importWindows(st);
+    const imported = (id) => (impWin[id] || []).some(([a, b]) => a <= today && today <= b);
+    const unassignedEmps = st.employees.filter((e) => e.status !== 'inactive' && !assigned.has(e.id) && !imported(e.id));
     const vacantLines = lines.filter((l) => !l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today));
     const summary = classes.map((c) => {
       const ls = lines.filter((l) => (clsOf(l) || {}).id === c.id && P.lineActiveOn(l, today));
