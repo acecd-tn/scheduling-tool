@@ -7,7 +7,7 @@
       const today = P.todayNum();
       const now = P.nowAbs();
       const hourIdx = Math.floor((now - today * P.DAY) / 60);
-      const cov = P.coverage(S, today, today + 1);
+      const cov = P.coverage(S, today, today + 1, { keepAssign: true });
       const staffing = P.staffingSummary(S);
       const op = P.openings(S, today, today + 6);
       const upcoming = op.slots.filter((s) => s.end > now);
@@ -34,11 +34,13 @@
         return `<div class="field"><label>${esc(p.name)}</label><div class="strip">${cells.join('')}</div><div class="strip-labels">${labels.join('')}</div></div>`;
       }).join('');
 
+      const where = (cov.assign && cov.assign[hourIdx]) || {};
+      const seen = new Set();
       const dutyRows = S.positions.map((p) => {
-        const list = onDuty.filter((iv) => iv.positionId === p.id).map((iv) => {
+        const list = onDuty.filter((iv) => (where[iv.employeeId] || iv.positionId) === p.id && !seen.has(iv.employeeId) && seen.add(iv.employeeId)).map((iv) => {
           const e = App.emp(iv.employeeId);
           const tag = iv.kind === 'ot' ? ' <span class="badge ok">OT</span>' : '';
-          const tr = e && !P.countable(e) ? ' <span class="badge warn" title="Not counted toward minimums">trainee</span>' : '';
+          const tr = (e && !P.countable(e) ? ' <span class="badge warn" title="Not counted toward minimums">trainee</span>' : '') + (e && e.positionId !== p.id ? ` <span class="badge info" title="Home: ${esc(App.posName(e.positionId))}">cross</span>` : '');
           return `<tr><td>${esc(P.empName(e))}${tag}${tr}</td><td class="nowrap">${P.mil(iv.start)}–${P.mil(iv.end)}</td></tr>`;
         }).join('');
         return `<tr class="group"><td colspan="2"><b>${esc(p.name)}</b></td></tr>${list || '<tr><td colspan="2" class="muted">Nobody on duty</td></tr>'}`;
@@ -74,7 +76,7 @@
             <td><button class="btn sm primary" data-action="fill-slot" data-slot="${esc(s.id)}" data-from="${today}" data-to="${today + 6}">Fill</button></td></tr>`).join('')}
           </tbody></table></div>${upcoming.length > 10 ? `<p class="small muted">+ ${upcoming.length - 10} more</p>` : ''}` : '<div class="empty">All minimums covered for the next 7 days.</div>'}
         </div>
-        <div class="panel"><h2>On duty now</h2><div class="table-wrap"><table><tbody>${dutyRows}</tbody></table></div></div>
+        <div class="panel"><h2>On duty now — by console <a class="btn sm" href="#/consoles">Console sheet</a></h2><div class="table-wrap"><table><tbody>${dutyRows}</tbody></table></div></div>
       </div>`;
     },
   };

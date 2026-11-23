@@ -36,6 +36,8 @@
             <td><button class="btn sm primary" data-action="fill-slot" data-slot="${esc(s.id)}" data-from="${today}" data-to="${to}">Fill…</button></td></tr>`).join('')}
         </tbody></table></div>` : '<div class="empty">No openings — every hour meets minimum staffing.</div>'}
         </div>
+        ${postingsPanel(st, today)}
+        ${tradesPanel(st)}
         <div class="grid g2">
           <div class="panel"><h2>Pending time-off requests</h2>
           ${pending.length ? `<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th class="num">Leave hrs</th><th>Impact if approved</th><th></th></tr></thead><tbody>
@@ -48,7 +50,7 @@
               <td class="nowrap"><button class="btn sm primary" data-action="exc-status" data-id="${e.id}" data-status="approved">Approve</button> <button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="denied">Deny</button></td></tr>`;
             }).join('')}
           </tbody></table></div>` : '<div class="empty">No pending requests.</div>'}
-          <p class="small muted">Add requests from the Schedule page (click a cell → status "Pending request").</p></div>
+          <p class="small muted">Employees submit requests from My Schedule; you can also add them from the Schedule page.</p></div>
           <div class="panel"><h2>Approved leave in window</h2>
           ${upcoming.length ? `<div class="table-wrap"><table><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th></th></tr></thead><tbody>
             ${upcoming.map((e) => `<tr><td>${esc(P.empName(App.emp(e.employeeId)))}</td><td>${esc(App.excType(e.type).label)}${e.start ? ` <span class="small muted">${e.start} ${e.hours}h</span>` : ''}</td>
@@ -59,6 +61,33 @@
       </div>`;
     },
   };
+  function postingsPanel(st, today) {
+    const list = st.postings.filter((p) => p.status === 'open' || (p.status === 'awarded' && P.parseDate(p.date) >= today)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+    if (!list.length) return '';
+    const rows = list.map((po) => {
+      const slot = App.A.postingSlot(po);
+      let vols = '';
+      if (po.status === 'open') {
+        const ranked = P.fillCandidates(st, slot, { order: 'voluntary' });
+        const rank = {}; ranked.forEach((c, i) => { rank[c.emp.id] = { i, c }; });
+        const v = (po.volunteers || []).slice().sort((a, b) => po.mode === 'first' ? a.at.localeCompare(b.at) : ((rank[a.employeeId] || { i: 999 }).i - (rank[b.employeeId] || { i: 999 }).i));
+        vols = v.map((x) => { const r = rank[x.employeeId]; const ok = r && r.c.eligible; return `<div>${esc(P.empName(App.emp(x.employeeId)))} ${ok ? '' : `<span class="badge bad">${esc(r ? r.c.issues.join(', ') : 'not qualified')}</span>`} <span class="small muted">${r ? hrs(r.c.otFyHours) + ' OT h FY' : ''}</span> <button class="btn sm ${ok ? 'primary' : ''}" data-action="po-award" data-id="${po.id}" data-emp="${x.employeeId}">Award</button></div>`; }).join('') || '<span class="muted">No volunteers yet</span>';
+      } else vols = `Awarded to <b>${esc(P.empName(App.emp(po.awardedTo)))}</b>`;
+      return `<tr><td class="nowrap">${App.slotTime(slot)}</td><td>${esc(App.posName(po.positionId))}</td><td class="num">${hrs(po.hours)}</td><td>${po.mode === 'first' ? 'first-come' : 'OT list'}</td><td>${App.statusBadge(po.status)}</td><td>${vols}</td>
+        <td>${po.status === 'open' ? `<button class="btn sm danger" data-action="po-cancel" data-id="${po.id}">Cancel</button>` : ''}</td></tr>`;
+    }).join('');
+    return `<div class="panel"><h2>Posted for volunteers</h2><div class="table-wrap"><table><thead><tr><th>When</th><th>Position</th><th class="num">Hrs</th><th>Award</th><th>Status</th><th>Volunteers (OT-list order)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+  function tradesPanel(st) {
+    const list = st.trades.filter((t) => t.status === 'accepted');
+    if (!list.length) return '';
+    return `<div class="panel"><h2>Shift trades awaiting approval</h2><table><thead><tr><th>Requester</th><th>Partner</th><th>Shift(s)</th><th>Note</th><th></th></tr></thead><tbody>
+      ${list.map((t) => `<tr><td>${esc(P.empName(App.emp(t.requesterId)))}</td><td>${esc(P.empName(App.emp(t.partnerId)))}</td>
+        <td class="small">${(t.legs || []).map((l) => `${esc(P.empName(App.emp(l.toId)))} works ${esc(P.empName(App.emp(l.fromId)))}'s ${P.shortDate(P.parseDate(l.date))} ${l.start.replace(':', '')} (${l.hours}h)`).join('<br>')}</td>
+        <td class="small">${esc(t.note || '')}</td>
+        <td class="nowrap"><button class="btn sm primary" data-action="tr-decide" data-id="${t.id}" data-ok="1">Approve</button> <button class="btn sm" data-action="tr-decide" data-id="${t.id}" data-ok="0">Deny</button></td></tr>`).join('')}
+    </tbody></table><p class="small muted">Trades are straight time: the person covering doesn't earn OT for it, and the original employee is credited as if they worked (FLSA 7(p)(3)).</p></div>`;
+  }
   App.changes['open-days'] = (el) => { App.ui.open.days = +el.value; App.render(); };
   App.actions['fill-slot'] = (el) => {
     const op = P.openings(S(), +el.dataset.from, +el.dataset.to);
@@ -101,7 +130,12 @@
         <td class="num">${hrs(c.otHours)}</td><td class="num">${money(c.cost)}</td>
         <td><button type="button" class="btn sm ${c.eligible ? 'primary' : ''}" data-action="fill-assign" data-emp="${c.emp.id}" data-hold="${c.holdover ? 1 : c.earlyIn ? 2 : 0}">${c.eligible ? 'Assign' : 'Override'}</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">No eligible candidates — try the full list, or split the opening.</td></tr>'}
       </tbody></table></div>
-      ${hidden ? `<p><label class="check"><input type="checkbox" ${F.showAll ? 'checked' : ''} data-change="fill-showall"> Show ${hidden} ineligible employee(s)</label></p>` : ''}`;
+      ${hidden ? `<p><label class="check"><input type="checkbox" ${F.showAll ? 'checked' : ''} data-change="fill-showall"> Show ${hidden} ineligible employee(s)</label></p>` : ''}
+      <div class="section"><h3>…or post it for volunteers</h3>
+        <div class="form-grid"><div class="field"><label>Award by</label><select name="postMode"><option value="list">OT list (supervisor awards)</option><option value="first">First eligible volunteer</option></select></div>
+        <div class="field" style="grid-column: span 2"><label>Note</label><input name="postNote" placeholder="optional" style="width:100%"></div></div>
+        <button type="button" class="btn" data-action="fill-post">Post & notify eligible staff</button>
+        <span class="small muted">Everyone qualified and eligible for ${P.mil(F.start)} × ${hrs(F.hours)} h is notified.</span></div>`;
   }
 
   App.changes['fill-param'] = () => {
@@ -122,11 +156,25 @@
       positionId: slot.positionId, employeeId: el.dataset.emp, type, reason: P.slotReason(slot),
       exceptionId: slot.causes[0] ? slot.causes[0].exceptionId : null, status: 'scheduled', note: '', createdAt: new Date().toISOString(),
     };
-    App.commit((s) => s.fills.push(fill), `${P.empName(App.emp(fill.employeeId))} assigned (${App.fillType(type)})`);
+    const { id: _ignore, ...payload } = fill;
+    App.act('assignFill', { fill: payload }).then((r) => { if (r) afterAssign(slot); });
+  };
+  function afterAssign(slot) {
     // If part of the opening is still open, keep the dialog going on the remainder.
     const d0 = Math.floor(slot.start / P.DAY);
     const rest = P.openings(S(), d0, Math.floor((slot.end - 1) / P.DAY)).slots.filter((x) => x.positionId === slot.positionId && x.start < slot.end && x.end > slot.start && x.end > P.nowAbs());
     if (rest.length) { App.openFill(rest[0]); App.toast(`${hrs(rest[0].hours)} h still open in this block`); }
     else App.closeModal();
+  }
+  App.actions['fill-post'] = () => {
+    const f = App.modalForm();
+    const slot = F.slot;
+    App.act('postOpening', {
+      positionId: slot.positionId, date: P.fmtDate(Math.floor(F.start / P.DAY)), start: P.timeStr(F.start), hours: F.hours,
+      mode: f.postMode, note: f.postNote, reason: P.slotReason(slot), exceptionId: slot.causes[0] ? slot.causes[0].exceptionId : null,
+    }).then((r) => { if (r) App.closeModal(); });
   };
+  App.actions['po-award'] = (el) => App.act('awardPosting', { id: el.dataset.id, employeeId: el.dataset.emp });
+  App.actions['po-cancel'] = (el) => App.confirm('Cancel this posting? Volunteers will be notified.', () => App.act('cancelPosting', { id: el.dataset.id }), 'Cancel posting');
+  App.actions['tr-decide'] = (el) => App.act('decideTrade', { id: el.dataset.id, approve: el.dataset.ok === '1' });
 })();

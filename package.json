@@ -1,9 +1,12 @@
 {
   "name": "psap-scheduler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "24x7 scheduling, staffing, overtime and shift-bid tool for emergency communications centers (PSAPs).",
+  "description": "24x7 scheduling, staffing, overtime and bid tool for emergency communications centers (PSAPs).",
+  "engines": { "node": ">=22.5" },
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "start": "node --no-warnings=ExperimentalWarning server/server.js",
+    "demo": "SEED=demo DATA_DIR=./data-demo node --no-warnings=ExperimentalWarning server/server.js",
+    "test": "node --no-warnings=ExperimentalWarning --test tests/*.test.js"
   }
 }

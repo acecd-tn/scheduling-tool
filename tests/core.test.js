@@ -176,6 +176,81 @@ test('every default pattern is OT-free under a 7-day/40-hour rule, at any alignm
   assert.ok(P.patternBuiltInOT(s, 't_d12', 'p_52', D('2026-01-04')).min > 0);
 });
 
+test('console assignment: cross-trained staff are placed where they are needed', () => {
+  const s = P.emptyState();
+  s.positions = [{ id: 'law', name: 'Law', priority: 1 }, { id: 'ct', name: 'CT', priority: 2 }];
+  P.migrate(s);
+  for (const pid of ['law', 'ct']) for (const row of s.minimums[pid]) row.fill(1);
+  // Both people are home 'ct'; one is also certified on law.
+  s.employees = [
+    { id: 'x', firstName: 'x', lastName: 'X', positionId: 'ct', status: 'active', qualifications: ['law'] },
+    { id: 'y', firstName: 'y', lastName: 'Y', positionId: 'ct', status: 'active', qualifications: [] },
+  ];
+  const ln = (id, emp) => ({ id, name: id, positionId: 'ct', shiftTemplateId: 't_d8', patternId: 'p_52', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: emp });
+  s.lines = [ln('a', 'x'), ln('b', 'y')];
+  const day = D('2026-01-04');
+  const cov = P.coverage(s, day, day, { keepAssign: true });
+  assert.equal(cov.staffed.law[8], 1);
+  assert.equal(cov.staffed.ct[8], 1);
+  assert.equal(cov.assign[8].x, 'law');
+  // Home-only counting would leave law empty.
+  s.center.coverageMode = 'home';
+  assert.equal(P.coverage(s, day, day).staffed.law[8], 0);
+  s.center.coverageMode = 'assigned';
+  // Priority: with only 'x' on duty, the higher-priority law seat is the one filled.
+  s.exceptions.push({ id: 'e', employeeId: 'y', date: '2026-01-04', type: 'sick', status: 'approved' });
+  const { slots } = P.openings(s, day, day);
+  assert.ok(slots.every((sl) => sl.positionId === 'ct' || sl.start % 1440 < 7 * 60 || sl.start % 1440 >= 15 * 60));
+  // A supervisor pin keeps 'x' on call-taking; law becomes the opening.
+  s.pins.push({ id: 'p', date: '2026-01-04', employeeId: 'x', positionId: 'ct' });
+  const c2 = P.coverage(s, day, day);
+  assert.equal(c2.staffed.law[8], 0);
+  assert.equal(c2.staffed.ct[8], 1);
+});
+
+test('shift trades: partner works at straight time and nobody earns OT from it', () => {
+  const s = tiny();
+  // Both on 5x8, 40 h; 'c' takes 'a's Sunday shift as a trade.
+  s.lines = [
+    { id: 'E', name: 'E', positionId: 'tc', shiftTemplateId: 't_d8', patternId: 'p_52', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: 'a' },
+    { id: 'F', name: 'F', positionId: 'tc', shiftTemplateId: 't_d8', patternId: 'p_52', anchorDate: '2026-01-05', effectiveFrom: '2026-01-04', employeeId: 'c' },
+  ];
+  s.exceptions.push({ id: 'tx', employeeId: 'a', date: '2026-01-04', type: 'trade', status: 'approved' });
+  s.fills.push({ id: 'tf', date: '2026-01-04', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'c', type: 'trade', reason: 'trade' });
+  const r = P.otReport(s, D('2026-01-04'), D('2026-01-10'));
+  assert.equal(r.totals.hours, 0);
+});
+
+test('privacy filter hides other employees\' leave reasons and pay', () => {
+  const s = tiny();
+  s.exceptions.push({ id: 'x1', employeeId: 'a', date: '2026-01-04', type: 'family', status: 'approved', note: 'medical' });
+  s.exceptions.push({ id: 'x2', employeeId: 'b', date: '2026-01-05', type: 'vacation', status: 'pending' });
+  const f = P.filterStateFor(s, { role: 'employee', employeeId: 'b' });
+  assert.equal(f.exceptions.find((x) => x.id === 'x1').type, 'leave');
+  assert.equal(f.exceptions.find((x) => x.id === 'x1').note, '');
+  assert.equal(f.exceptions.find((x) => x.id === 'x2').type, 'vacation');
+  // Another person's vacation stays visible (for vacation-bid limits); their sick time does not.
+  const g = P.filterStateFor(s, { role: 'employee', employeeId: 'c' });
+  assert.equal(g.exceptions.find((x) => x.id === 'x2').type, 'vacation');
+  assert.equal(g.exceptions.find((x) => x.id === 'x1').type, 'leave');
+  assert.equal(f.employees.find((e) => e.id === 'a').hourlyRate, 0);
+  assert.equal(f.employees.find((e) => e.id === 'b').hourlyRate, 20);
+});
+
+test('diffState / applyDiff round-trip', () => {
+  const a = tiny();
+  const b = JSON.parse(JSON.stringify(a));
+  b.employees[0].lastName = 'Changed';
+  b.fills.push({ id: 'n', date: '2026-01-04', start: '06:00', hours: 4, positionId: 'tc', employeeId: 'c' });
+  b.lines = b.lines.filter((l) => l.id !== 'L2');
+  b.center.minRestHours = 10;
+  const d = P.diffState(a, b);
+  assert.deepEqual(Object.keys(d.upserts).sort(), ['employees', 'fills']);
+  assert.deepEqual(d.deletes.lines, ['L2']);
+  const c = P.applyDiff(JSON.parse(JSON.stringify(a)), d);
+  assert.equal(JSON.stringify(P.diffState(b, c)), JSON.stringify({ upserts: {}, deletes: {}, config: {} }));
+});
+
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);

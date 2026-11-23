@@ -27,7 +27,13 @@
     { id: 'admin', label: 'Admin leave / detail', abbr: 'A', worked: true },
     { id: 'injury', label: 'Injury / workers comp', abbr: 'WC' },
     { id: 'other', label: 'Other', abbr: 'O' },
+    // Shift trade: the partner works this shift at straight time. Under FLSA 7(p)(3) the
+    // original employee is credited as if they worked it, and the partner's hours are excluded.
+    { id: 'trade', label: 'Shift trade (partner working)', abbr: 'TR', worked: true, system: true },
+    // What other employees see in place of someone's leave reason (sick/FMLA are confidential).
+    { id: 'leave', label: 'Off (leave)', abbr: 'L', system: true },
   ];
+  const PLANNED_LEAVE = ['vacation', 'comp', 'holiday'];
 
   const FILL_TYPES = [
     { id: 'voluntary', label: 'Voluntary OT' },
@@ -35,7 +41,10 @@
     { id: 'holdover', label: 'Holdover' },
     { id: 'earlyin', label: 'Early call-in' },
     { id: 'callback', label: 'Call-back' },
+    { id: 'trade', label: 'Shift trade (straight time)' },
   ];
+  const COLLECTIONS = ['positions', 'shiftTemplates', 'patterns', 'employees', 'lines', 'exceptions', 'fills', 'bids',
+    'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins'];
 
   const STATUSES = [
     { id: 'active', label: 'Active' },
@@ -115,6 +124,9 @@
       minRestHours: 8,
       maxShiftHours: 16,
       maxHours7Days: 60,
+      coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
+      minPresenceMinutes: 30,     // a person counts for an hour if on duty at least this long in it
+      tradeRequiresApproval: true,
       theme: 'dark',
     };
   }
@@ -136,6 +148,11 @@
       exceptions: [],
       fills: [],
       bids: [],
+      trades: [],
+      postings: [],
+      vacationBids: [],
+      notifications: [],
+      pins: [],
     };
   }
 
@@ -174,7 +191,7 @@
     s = s || {};
     s.center = Object.assign(defaultCenter(), s.center || {});
     for (const k of ['positions', 'shiftTemplates', 'patterns']) if (!Array.isArray(s[k])) s[k] = base[k];
-    for (const k of ['employees', 'lines', 'exceptions', 'fills', 'bids', 'minimumOverrides']) if (!Array.isArray(s[k])) s[k] = [];
+    for (const k of COLLECTIONS) if (!Array.isArray(s[k])) s[k] = base[k] || [];
     s.minimums = s.minimums || {};
     for (const p of s.positions) {
       if (!Array.isArray(s.minimums[p.id])) s.minimums[p.id] = Array.from({ length: 7 }, () => new Array(24).fill(0));
@@ -296,6 +313,44 @@
     return v;
   }
 
+  /** Positions in fill-priority order (lower `priority` first, then list order). */
+  function positionOrder(state) {
+    return state.positions.map((p, i) => ({ p, k: p.priority == null || p.priority === '' ? 100 + i : +p.priority, i }))
+      .sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.p);
+  }
+
+  /**
+   * Place the people on duty in one hour onto console seats.
+   * Seats are filled in priority order with augmenting paths (Kuhn's algorithm),
+   * so a higher-priority seat is never given up to fill a lower one. People left
+   * over sit on their home discipline.
+   * people: [{ id, home, quals: Set }]; req: { positionId: count }
+   */
+  function assignHour(people, req, order) {
+    const seats = [];
+    for (const p of order) for (let k = 0; k < (req[p.id] || 0); k++) seats.push(p.id);
+    const owner = new Array(people.length).fill(-1);
+    const cands = seats.map((pid) => people.map((x, i) => i).filter((i) => people[i].quals.has(pid))
+      .sort((a, b) => (people[b].home === pid) - (people[a].home === pid) || people[a].quals.size - people[b].quals.size));
+    const dfs = (si, seen) => {
+      for (const pi of cands[si]) {
+        if (seen[pi]) continue;
+        seen[pi] = 1;
+        if (owner[pi] === -1 || dfs(owner[pi], seen)) { owner[pi] = si; return true; }
+      }
+      return false;
+    };
+    for (let si = 0; si < seats.length; si++) dfs(si, new Array(people.length).fill(0));
+    const where = {}, counts = {};
+    people.forEach((x, i) => {
+      const pid = owner[i] >= 0 ? seats[owner[i]] : (x.quals.has(x.home) ? x.home : [...x.quals][0]);
+      if (!pid) return;
+      where[x.id] = pid;
+      counts[pid] = (counts[pid] || 0) + 1;
+    });
+    return { where, counts };
+  }
+
   /** Hour-by-hour staffed vs required per position over [fromDay, toDay]. */
   function coverage(state, fromDay, toDay, opts = {}) {
     const wi = opts.wi || workIntervals(state, fromDay, toDay, opts);
@@ -308,18 +363,59 @@
       const req = required[p.id] = new Array(n);
       for (let i = 0; i < n; i++) req[i] = requiredFor(state, p.id, fromDay + Math.floor(i / 24), i % 24);
     }
+    const mode = state.center.coverageMode || 'assigned';
+    if (mode === 'home') {
+      for (const iv of wi.intervals) {
+        if (!countable(ix.emp[iv.employeeId])) continue;
+        const arr = staffed[iv.positionId];
+        if (!arr) continue;
+        const h0 = Math.max(0, Math.floor((iv.start - base) / 60));
+        const h1 = Math.min(n, Math.ceil((iv.end - base) / 60));
+        for (let h = h0; h < h1; h++) {
+          const ov = Math.min(iv.end, base + (h + 1) * 60) - Math.max(iv.start, base + h * 60);
+          if (ov > 0) arr[h] += ov / 60;
+        }
+      }
+      return { fromDay, toDay, base, n, staffed, required, wi, assign: null };
+    }
+    // Console-assignment mode.
+    const minPres = Math.max(1, +state.center.minPresenceMinutes || 30);
+    const posIds = new Set(state.positions.map((p) => p.id));
+    const pins = {};
+    for (const pn of state.pins || []) pins[pn.employeeId + '|' + parseDate(pn.date)] = pn.positionId;
+    const present = Array.from({ length: n }, () => new Map());
     for (const iv of wi.intervals) {
-      if (!countable(ix.emp[iv.employeeId])) continue;
-      const arr = staffed[iv.positionId];
-      if (!arr) continue;
+      const emp = ix.emp[iv.employeeId];
+      if (!countable(emp)) continue;
       const h0 = Math.max(0, Math.floor((iv.start - base) / 60));
       const h1 = Math.min(n, Math.ceil((iv.end - base) / 60));
       for (let h = h0; h < h1; h++) {
         const ov = Math.min(iv.end, base + (h + 1) * 60) - Math.max(iv.start, base + h * 60);
-        if (ov > 0) arr[h] += ov / 60;
+        if (ov <= 0) continue;
+        let x = present[h].get(emp.id);
+        if (!x) {
+          x = { id: emp.id, home: emp.positionId, quals: new Set([emp.positionId, ...(emp.qualifications || [])].filter((q) => posIds.has(q))), mins: 0, day: iv.day };
+          present[h].set(emp.id, x);
+        }
+        x.mins += ov;
+        if (iv.kind === 'ot' && posIds.has(iv.positionId)) { x.quals.add(iv.positionId); if (iv.fillType !== 'trade') x.otPos = iv.positionId; }
+        const pin = pins[emp.id + '|' + iv.day];
+        if (pin && posIds.has(pin)) x.pin = pin;
       }
     }
-    return { fromDay, toDay, base, n, staffed, required, wi };
+    const order = positionOrder(state);
+    const assign = opts.keepAssign ? new Array(n) : null;
+    for (let h = 0; h < n; h++) {
+      const people = [...present[h].values()].filter((x) => x.mins >= Math.min(minPres, 60));
+      for (const x of people) { if (x.pin) x.quals = new Set([x.pin]); else if (x.otPos && !x.quals.has(x.home)) x.quals = new Set([x.otPos]); }
+      if (!people.length) continue;
+      const req = {};
+      for (const p of state.positions) req[p.id] = required[p.id][h];
+      const r = assignHour(people, req, order);
+      for (const [pid, c] of Object.entries(r.counts)) if (staffed[pid]) staffed[pid][h] = c;
+      if (assign) assign[h] = r.where;
+    }
+    return { fromDay, toDay, base, n, staffed, required, wi, assign };
   }
 
   /**
@@ -344,7 +440,9 @@
           const start = cov.base + h * 60, end = cov.base + e * 60;
           const seen = new Set(), causes = [];
           for (const l of cov.wi.leave) {
-            if (l.positionId !== p.id || l.start >= end || l.end <= start || seen.has(l.exceptionId)) continue;
+            if (l.start >= end || l.end <= start || seen.has(l.exceptionId) || l.type === 'trade') continue;
+            const le = ix.emp[l.employeeId];
+            if (l.positionId !== p.id && !(le && qualifiedFor(le, p.id))) continue;
             seen.add(l.exceptionId);
             causes.push({ exceptionId: l.exceptionId, employeeId: l.employeeId, type: l.type, label: (ix.excType[l.type] || {}).label || l.type });
           }
@@ -386,6 +484,7 @@
     for (const iv of ivs) {
       if (iv.day < pStart || iv.day > pEnd || iv.day > cutoff) continue;
       const hrs = (iv.end - iv.start) / 60;
+      if (iv.kind === 'ot' && iv.fillType === 'trade') continue; // FLSA 7(p)(3): substitute's trade hours excluded
       if (iv.kind === 'ot') { h.fill += hrs; h.fillByReason[iv.reason || 'other'] = (h.fillByReason[iv.reason || 'other'] || 0) + hrs; }
       else h.regular += hrs;
     }
@@ -563,7 +662,7 @@
     const byType = {};
     let totalH = 0;
     for (const l of wi.leave) {
-      if (l.day < today - 364 || l.day > today) continue;
+      if (l.day < today - 364 || l.day > today || l.type === 'trade') continue;
       byType[l.type] = (byType[l.type] || 0) + l.minutes / 60;
       totalH += l.minutes / 60;
     }
@@ -584,7 +683,7 @@
     const wi = workIntervals(state, Math.min(d0 - 8, per.start), Math.max(d0 + 2, per.end), { ix });
     const ivBy = groupBy(wi.intervals, 'employeeId'), lvBy = groupBy(wi.leave, 'employeeId');
     const fy = fiscalYear(state, d0);
-    const fyFills = state.fills.filter((f) => f.status !== 'cancelled' && parseDate(f.date) >= fy.start && parseDate(f.date) <= fy.end);
+    const fyFills = state.fills.filter((f) => f.status !== 'cancelled' && f.type !== 'trade' && parseDate(f.date) >= fy.start && parseDate(f.date) <= fy.end);
     const fillsBy = groupBy(fyFills, 'employeeId');
     const mult = +c.otMultiplier || 1.5;
     const slotHours = (slot.end - slot.start) / 60;
@@ -741,6 +840,76 @@
     return openings(temp, fromDay, fromDay + days - 1);
   }
 
+  // ----------------------------------------------------------- sync & privacy
+  /** Record-level changes between two states (used to sync and to audit). */
+  function diffState(before, after) {
+    const out = { upserts: {}, deletes: {}, config: {} };
+    for (const k of COLLECTIONS) {
+      const a = {}, b = {};
+      for (const x of before[k] || []) a[x.id] = x;
+      for (const x of after[k] || []) b[x.id] = x;
+      for (const [id, x] of Object.entries(b)) if (!a[id] || JSON.stringify(a[id]) !== JSON.stringify(x)) (out.upserts[k] ||= []).push(x);
+      for (const id of Object.keys(a)) if (!b[id]) (out.deletes[k] ||= []).push(id);
+    }
+    for (const k of ['center', 'minimums']) if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) out.config[k] = after[k];
+    return out;
+  }
+  function diffEmpty(d) { return !Object.keys(d.upserts).length && !Object.keys(d.deletes).length && !Object.keys(d.config).length; }
+  function applyDiff(state, d) {
+    for (const [k, list] of Object.entries(d.upserts || {})) {
+      if (!COLLECTIONS.includes(k)) continue;
+      for (const x of list) {
+        if (!x || !x.id) continue;
+        const i = state[k].findIndex((y) => y.id === x.id);
+        if (i >= 0) state[k][i] = x; else state[k].push(x);
+      }
+    }
+    for (const [k, ids] of Object.entries(d.deletes || {})) {
+      if (!COLLECTIONS.includes(k)) continue;
+      const set = new Set(ids);
+      state[k] = state[k].filter((x) => !set.has(x.id));
+    }
+    for (const [k, v] of Object.entries(d.config || {})) if (k === 'center' || k === 'minimums') state[k] = v;
+    return state;
+  }
+
+  /**
+   * What an employee-role user may see: their own data in full; for everyone
+   * else no pay rates or notes, and leave shows only as "Off (leave)".
+   */
+  function filterStateFor(state, user) {
+    if (!user || user.role === 'admin' || user.role === 'supervisor') return state;
+    const me = user.employeeId;
+    const out = Object.assign({}, state);
+    out.center = Object.assign({}, state.center, { annualOtBudget: 0 });
+    out.employees = state.employees.filter((e) => e.status !== 'inactive' || e.id === me)
+      .map((e) => e.id === me ? e : Object.assign({}, e, { hourlyRate: 0, notes: '', phone: '' }));
+    // Planned leave (vacation/comp/holiday) stays visible so staff can see which days are full;
+    // sick, FMLA, injury and other reasons are confidential.
+    const open = (t) => t === 'trade' || PLANNED_LEAVE.includes(t);
+    out.exceptions = state.exceptions.filter((x) => x.employeeId === me || x.status === 'approved' || (x.status === 'pending' && open(x.type)))
+      .map((x) => x.employeeId === me ? x : Object.assign({}, x, { type: open(x.type) ? x.type : 'leave', note: '', decisionNote: '' }));
+    out.trades = state.trades.filter((t) => t.requesterId === me || t.partnerId === me);
+    out.notifications = state.notifications.filter((n) => n.employeeId === me);
+    out.postings = state.postings.map((p) => Object.assign({}, p, { volunteers: (p.volunteers || []).filter((v) => v.employeeId === me), volunteerCount: (p.volunteers || []).length }));
+    out.bids = state.bids.filter((b) => b.status !== 'draft');
+    return out;
+  }
+
+  /** Employees of a discipline with planned leave (vacation/comp/holiday) on a day. */
+  function plannedLeaveOn(state, day, positionId, extra = []) {
+    const ix = index(state);
+    const who = new Set();
+    for (const e of state.exceptions.concat(extra)) {
+      if (!PLANNED_LEAVE.includes(e.type) || !(e.status === 'approved' || e.status === 'pending')) continue;
+      const [a, b] = exceptionRange(e);
+      if (day < a || day > b) continue;
+      const emp = ix.emp[e.employeeId];
+      if (emp && emp.positionId === positionId) who.add(emp.id);
+    }
+    return who;
+  }
+
   // ------------------------------------------------------------------ demo
   function demoState(today = todayNum()) {
     const rnd = mulberry32(9110);
@@ -749,10 +918,10 @@
     Object.assign(s.center, { annualOtBudget: 90000 });
     // Minimums are set per discipline.
     s.positions = [
-      { id: 'pos_ct', name: 'Call-taker', authorized: 18, isConsole: true },
-      { id: 'pos_law', name: 'Law dispatch', authorized: 13, isConsole: true },
-      { id: 'pos_fire', name: 'Fire/EMS dispatch', authorized: 9, isConsole: true },
-      { id: 'pos_sup', name: 'Shift Supervisor', authorized: 6, isConsole: false },
+      { id: 'pos_ct', name: 'Call-taker', authorized: 18, isConsole: true, priority: 4 },
+      { id: 'pos_law', name: 'Law dispatch', authorized: 13, isConsole: true, priority: 2 },
+      { id: 'pos_fire', name: 'Fire/EMS dispatch', authorized: 9, isConsole: true, priority: 3 },
+      { id: 'pos_sup', name: 'Shift Supervisor', authorized: 6, isConsole: false, priority: 1 },
     ];
     const grid = (fn) => Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => fn(d, h)));
     const weekendNight = (d, h) => (d === 5 || d === 6) && h >= 22;
@@ -889,7 +1058,8 @@
   }
 
   const api = {
-    DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES,
+    DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
+    positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor,
     lineActiveOn, lineShiftOn, regularShifts, workIntervals, exceptionRange,

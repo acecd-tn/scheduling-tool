@@ -9,6 +9,7 @@
 
   App.views.bid = {
     render(st, ui) {
+      if (!App.isSup()) return employeeBid(st);
       const u = ui.bid;
       const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current lines</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button></div>`;
       return `<div class="page-head"><div><h1>Lines & Shift Bid</h1><p>A line = shift + rotation pattern + start date. Mix 8, 10 and 12-hour lines freely; switch schedules by bidding a new set of lines with an effective date.</p></div></div>
@@ -242,10 +243,29 @@
   App.actions['bid-open'] = (el) => { App.ui.bid.bidId = el.dataset.id; App.render(); };
   App.actions['bid-del'] = (el) => App.confirm('Delete this bid package?', () => App.commit((s) => { s.bids = s.bids.filter((b) => b.id !== el.dataset.id); }, 'Bid deleted'), 'Delete');
   App.actions['bid-status'] = (el) => App.commit(() => { curBid().status = el.dataset.s; });
-  App.actions['bid-pick'] = (el) => App.commit((s) => {
-    const b = curBid(); const cur = P.currentBidder(s, b);
-    if (cur) { b.picks[cur.id] = el.dataset.line; (b.log ||= []).push({ at: new Date().toISOString(), employeeId: cur.id, lineId: el.dataset.line }); }
-  }, 'Pick recorded');
+  App.actions['bid-pick'] = (el) => App.act('shiftBidPick', { bidId: el.dataset.bid || App.ui.bid.bidId, lineId: el.dataset.line });
+
+  /** Employee view: open bids for my discipline; pick when it's my turn. */
+  function employeeBid(st) {
+    const me = App.me.employeeId;
+    const emp = App.emp(me);
+    const bids = st.bids.filter((b) => b.status !== 'draft' && emp && b.positionId === emp.positionId);
+    if (!bids.length) return '<div class="page-head"><div><h1>Shift bid</h1></div></div><div class="panel empty">No shift bid is open for your discipline.</div>';
+    return '<div class="page-head"><div><h1>Shift bid</h1><p>Lines are picked in seniority order. You\'ll be notified when it is your turn.</p></div></div>' + bids.map((b) => {
+      const order = P.bidOrder(st, b);
+      const cur = b.status === 'open' ? P.currentBidder(st, b) : null;
+      const byLine = {}; for (const [e, l] of Object.entries(b.picks || {})) byLine[l] = e;
+      const myPick = b.picks && b.picks[me] ? b.lines.find((l) => l.id === b.picks[me]) : null;
+      const eff = P.parseDate(b.effectiveDate);
+      return `<div class="panel" style="margin-bottom:14px"><h2>${esc(b.name)} — effective ${P.shortDate(eff)} ${App.statusBadge(b.status)}</h2>
+        ${myPick ? `<div class="callout">Your line: <b>${esc(myPick.name)}</b></div>` : cur && cur.id === me ? '<div class="callout warn"><b>It\'s your turn.</b> Pick a line below.</div>' : cur ? `<div class="callout">Now picking: ${esc(P.empName(cur))}. You are #${order.findIndex((e) => e.id === me) + 1} of ${order.length}.</div>` : ''}
+        <div class="table-wrap"><table><thead><tr><th>Line</th><th>Shift</th><th>Pattern</th><th>First 14 days</th><th>Picked by</th></tr></thead><tbody>
+        ${b.lines.map((l) => { const t = App.tpl(l.shiftTemplateId); const pat = st.patterns.find((p) => p.id === l.patternId); const by = byLine[l.id];
+          return `<tr class="${by ? 'dim' : ''}"><td>${esc(l.name)}</td><td>${t ? `${esc(t.code)} ${t.start.replace(':', '')} ${t.hours}h` : ''}</td><td class="small">${esc(pat ? pat.name : '')}</td><td>${pat ? daysOffText(pat, l, eff) : ''}</td>
+          <td>${by ? esc(P.empName(App.emp(by))) : cur && cur.id === me ? `<button class="btn sm primary" data-action="bid-pick" data-bid="${b.id}" data-line="${l.id}">Pick this line</button>` : '<span class="muted">open</span>'}</td></tr>`; }).join('')}
+        </tbody></table></div></div>`;
+    }).join('');
+  }
   App.actions['bid-skip'] = () => App.commit((s) => { const b = curBid(); const cur = P.currentBidder(s, b); if (cur) (b.skipped ||= []).push(cur.id); });
   App.actions['bid-undo'] = (el) => App.commit(() => { const b = curBid(); delete b.picks[el.dataset.emp]; b.skipped = (b.skipped || []).filter((x) => x !== el.dataset.emp); });
   App.actions['bid-move'] = (el) => App.commit((s) => {

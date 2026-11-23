@@ -65,6 +65,7 @@
       if (lastPos) body += sumRow(lastPos);
 
       function sumRow(pid) {
+        if (!App.isSup()) return '';
         return `<tr class="sum"><td class="name">Uncovered hrs vs minimum</td>${days.map((d) => {
           const v = shortBy[pid + '|' + d] || 0;
           return `<td>${v ? `<a href="#" data-action="cov-day" data-day="${d}" class="badge bad">${hrs(v)}</a>` : '<span class="muted">✓</span>'}</td>`;
@@ -72,7 +73,7 @@
       }
 
       return `
-      <div class="page-head"><div><h1>Schedule</h1><p>${P.shortDate(from)} – ${P.shortDate(to)} · click any cell to record a call-out, time off, training or OT</p></div>
+      <div class="page-head"><div><h1>Schedule</h1><p>${P.shortDate(from)} – ${P.shortDate(to)} · ${App.isSup() ? 'click any cell to record a call-out, time off, training or OT' : 'click one of your own days to request time off'}</p></div>
         <div class="toolbar">
           <button class="btn" data-action="sched-move" data-dir="-1">◀</button>
           <button class="btn" data-action="sched-today">This period</button>
@@ -85,7 +86,7 @@
       <div class="panel"><div class="legend" style="margin-bottom:8px">
         ${st.shiftTemplates.map((t) => `<span><span class="shift" style="background:${esc(t.color)}">${esc(t.code)}</span>${esc(t.start.replace(':', ''))} ${t.hours}h</span>`).join('')}
         <span><span class="shift leave">S</span>call-out</span><span><span class="shift leave planned">V</span>planned leave</span>
-        <span><span class="shift leave worked">T</span>training</span><span><span class="shift pending" style="background:#64748b">D12</span>pending request</span><span><span class="shift ot">OT</span>overtime</span>
+        <span><span class="shift leave worked">T</span>training / trade</span><span><span class="shift pending" style="background:#64748b">D12</span>pending request</span><span><span class="shift ot">OT</span>overtime</span>
       </div>
       <div class="table-wrap" style="max-height:72vh"><table class="sched"><thead>${head}</thead><tbody>${body || `<tr><td class="empty" colspan="${days.length + 1}">No employees yet — add staff and lines first.</td></tr>`}</tbody></table></div></div>`;
     },
@@ -120,7 +121,10 @@
   App.changes['sched-days'] = (el) => { App.ui.sched.days = +el.value; App.render(); };
   App.changes['sched-pos'] = (el) => { App.ui.sched.pos = el.value; App.render(); };
   App.actions['cov-day'] = (el) => { const d = +el.dataset.day; App.ui.cov = Object.assign(App.ui.cov || {}, { start: d - P.dow(d) }); App.go('coverage'); };
-  App.actions['day-cell'] = (el) => App.openDay(el.dataset.emp, +el.dataset.day);
+  App.actions['day-cell'] = (el) => {
+    if (App.isSup()) return App.openDay(el.dataset.emp, +el.dataset.day);
+    if (el.dataset.emp === App.me.employeeId) return App.openRequest(+el.dataset.day);
+  };
 
   // ------------------------------------------------------------ day dialog
   App.openDay = function (empId, day) {
@@ -152,7 +156,7 @@
       </tbody></table>` : ''}
       <div class="section"><h3>Leave / call-out / training</h3>
         <div class="form-grid">
-          <div class="field"><label>Type</label><select name="type">${App.opts(P.EXCEPTION_TYPES, reg && day === P.todayNum() ? 'sick' : 'vacation', (t) => t.label)}</select></div>
+          <div class="field"><label>Type</label><select name="type">${App.opts(P.EXCEPTION_TYPES.filter((t) => !t.system), reg && day === P.todayNum() ? 'sick' : 'vacation', (t) => t.label)}</select></div>
           <div class="field"><label>Status</label><select name="status"><option value="approved">Approved</option><option value="pending">Pending request</option></select></div>
           <div class="field"><label>Through date (multi-day)</label><input type="date" name="endDate" min="${P.fmtDate(day)}"></div>
         </div>
@@ -199,12 +203,9 @@
   };
   App.actions['ot-add'] = (el) => {
     const f = App.modalForm();
-    App.commit((s) => s.fills.push({
-      id: P.uid('ot'), date: P.fmtDate(+el.dataset.day), start: f.otStart, hours: +f.otHours, positionId: f.otPos, employeeId: el.dataset.emp,
-      type: f.otType, reason: f.otReason || 'vacancy', exceptionId: null, status: 'scheduled', note: '', createdAt: new Date().toISOString(),
-    }), 'Overtime added');
+    App.act('assignFill', { fill: { date: P.fmtDate(+el.dataset.day), start: f.otStart, hours: +f.otHours, positionId: f.otPos, employeeId: el.dataset.emp, type: f.otType, reason: f.otReason || 'vacancy', exceptionId: null } });
   };
-  App.actions['exc-status'] = (el) => App.commit((s) => { const e = s.exceptions.find((x) => x.id === el.dataset.id); if (e) { e.status = el.dataset.status; e.decidedAt = new Date().toISOString(); } }, 'Request ' + el.dataset.status);
+  App.actions['exc-status'] = (el) => App.act('decideLeave', { id: el.dataset.id, status: el.dataset.status });
   App.actions['exc-del'] = (el) => App.commit((s) => { s.exceptions = s.exceptions.filter((x) => x.id !== el.dataset.id); }, 'Removed');
   App.actions['fill-del'] = (el) => App.commit((s) => { s.fills = s.fills.filter((x) => x.id !== el.dataset.id); }, 'OT removed');
 })();

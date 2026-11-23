@@ -46,6 +46,12 @@
           <label class="check">${chk('extraShiftsAlwaysOT')} Extra (non-scheduled) shifts are always paid as OT</label>
           <label class="check">${chk('leaveCountsTowardOT')} Paid leave counts toward the OT threshold</label>
           <p class="small muted">FLSA default is a 7-day / 40-hour work week, paid leave not counted. Many 12-hour centers use 14/80 or a 7(k)-style period; check your policy / MOU.</p>
+          <h3 style="margin-top:12px">Console coverage</h3>
+          <div class="form-grid">
+            <div class="field"><label>Count staff toward minimums by</label><select data-change="center" data-k="coverageMode"><option value="assigned" ${c.coverageMode !== 'home' ? 'selected' : ''}>Console assignment (use cross-training)</option><option value="home" ${c.coverageMode === 'home' ? 'selected' : ''}>Home discipline only</option></select></div>
+            <div class="field"><label>Counts for an hour if on duty ≥ (min)</label>${num('minPresenceMinutes', 5)}</div>
+          </div>
+          <label class="check">${chk('tradeRequiresApproval')} Shift trades need supervisor approval</label>
           <h3 style="margin-top:12px">Fatigue & fill rules</h3>
           <div class="form-grid">
             <div class="field"><label>Min rest between shifts (h)</label>${num('minRestHours', 0.5)}</div>
@@ -54,11 +60,15 @@
           </div>
         </div>
         <div class="panel"><h2>Data</h2>
-          <p>Data is saved in this browser only. Export regularly as a backup or to move it to another computer.</p>
+          ${App.mode === 'server' ? `<p>Data is stored on the server${App.isAdmin() ? '. Back it up by copying the data folder or exporting here.' : '. Admins can export and import backups.'}</p>
+          ${App.isAdmin() ? `<div class="toolbar"><a class="btn" href="/api/export">Export backup (JSON)</a>
+            <label class="btn">Import backup<input type="file" accept=".json,application/json" data-change="data-import" hidden></label>
+            <button class="btn" data-action="data-demo">Load demo data</button><button class="btn danger" data-action="data-reset">Start empty</button></div>` : ''}`
+          : `<p>Data is saved in this browser only. Export regularly as a backup or to move it to another computer. For logins and shared access, run the server (see README).</p>
           <div class="toolbar"><button class="btn" data-action="data-export">Export backup (JSON)</button>
             <label class="btn">Import backup<input type="file" accept=".json,application/json" data-change="data-import" hidden></label>
             <button class="btn" data-action="data-demo">Load demo data</button>
-            <button class="btn danger" data-action="data-reset">Start empty</button></div>
+            <button class="btn danger" data-action="data-reset">Start empty</button></div>`}
           <div class="section"><h3>Special-day minimums</h3>
             <p class="small muted">Raise (or lower) minimums for a specific date: holidays, July 4th, New Year's Eve, storms, big events.</p>
             <table><thead><tr><th>Date</th><th>Position</th><th>From hr</th><th>To hr</th><th>Min</th><th>Note</th><th></th></tr></thead><tbody>
@@ -77,6 +87,7 @@
         <div class="table-wrap"><table class="mingrid"><thead><tr><th></th>${Array.from({ length: 24 }, (_, h) => `<th>${P.pad(h)}</th>`).join('')}<th>Person-h</th></tr></thead><tbody>
         ${P.DOW.map((d, di) => `<tr><th>${d}</th>${Array.from({ length: 24 }, (_, h) => `<td><input type="number" min="0" value="${(grid[di] || [])[h] || 0}" data-change="min-cell" data-d="${di}" data-h="${h}"></td>`).join('')}<td class="num">${(grid[di] || []).reduce((s, v) => s + (+v || 0), 0)}</td></tr>`).join('')}
         </tbody></table></div></div>
+      ${App.mode === 'server' ? `<div class="panel" style="margin-top:14px"><h2>Audit log <button class="btn sm" data-action="audit-load">${App.ui.audit ? 'Refresh' : 'Load'}</button></h2>${auditTable()}</div>` : ''}
       <div class="grid g2" style="margin-top:14px">
         <div class="panel"><h2>Shift templates <button class="btn sm" data-action="tpl-add">+ Shift</button></h2>
           <table><thead><tr><th>Code</th><th>Name</th><th>Start</th><th>Hours</th><th>Color</th><th></th></tr></thead><tbody>
@@ -93,6 +104,23 @@
       </div>`;
     },
   };
+
+  function auditTable() {
+    const list = App.ui.audit;
+    if (!list) return '<p class="small muted">Every change — who, what, when, before and after — is recorded on the server.</p>';
+    const summary = (e) => {
+      if (!e.detail || !e.detail.changes) return e.detail ? esc(JSON.stringify(e.detail).slice(0, 160)) : '';
+      return e.detail.changes.slice(0, 6).map((c) => {
+        const x = c.after || c.before || {};
+        const who = x.employeeId ? P.empName(App.emp(x.employeeId)) : x.lastName ? P.empName(x) : '';
+        return `${esc(c.op)} ${esc(c.kind)}${who ? ' · ' + esc(who) : ''}${x.date ? ' · ' + esc(x.date) : ''}${x.status ? ' · ' + esc(x.status) : ''}`;
+      }).join('<br>') + (e.detail.changes.length > 6 ? `<br>+${e.detail.changes.length - 6} more` : '');
+    };
+    return `<div class="table-wrap" style="max-height:420px"><table><thead><tr><th>When</th><th>User</th><th>Action</th><th>Changes</th></tr></thead><tbody>
+      ${list.map((e) => `<tr><td class="nowrap small">${esc(new Date(e.at).toLocaleString())}</td><td>${esc(e.username || '')}</td><td class="small">${esc(e.action)}</td><td class="small">${summary(e)}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  }
+  App.actions['audit-load'] = () => App.api('GET', '/api/audit?limit=300').then((r) => { App.ui.audit = r.entries; App.render(); }).catch((e) => App.toast(e.message, true));
 
   App.changes['center'] = (el) => App.commit((s) => {
     const k = el.dataset.k;
