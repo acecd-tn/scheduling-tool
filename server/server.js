@@ -7,14 +7,10 @@
  * logins and roles, records an audit trail, and pushes live updates.
  *
  *   node server/server.js                 # empty center, prints the admin password
- *   SEED=demo node server/server.js       # demo center with demo accounts
+ *   node server/server.js --demo --data data-demo   # demo center with demo accounts
  *
- * Settings (environment variables):
- *   PORT=8080  HOST=0.0.0.0  DATA_DIR=./data
- *   COOKIE_SECURE=1        set when served over HTTPS (recommended)
- *   ADMIN_PASSWORD=...     initial admin password (otherwise random, printed once)
- *   NOTIFY_WEBHOOK_URL=... POST each notification as JSON (route to email/SMS/Teams)
- *   SESSION_HOURS=168
+ * Settings: psap.config.json (see psap.config.example.json), environment
+ * variables, or command-line flags — see readConfig() below.
  */
 'use strict';
 const http = require('node:http');
@@ -26,12 +22,44 @@ const P = require('../js/core.js');
 const A = require('../js/actions.js');
 
 const ROOT = path.resolve(__dirname, '..');
-const PORT = +process.env.PORT || 8080;
-const HOST = process.env.HOST || '0.0.0.0';
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'));
-const COOKIE_SECURE = /^(1|true|yes)$/i.test(process.env.COOKIE_SECURE || '');
-const SESSION_MS = (+process.env.SESSION_HOURS || 168) * 3600e3;
-const WEBHOOK = process.env.NOTIFY_WEBHOOK_URL || '';
+
+/*
+ * Configuration, highest priority first:
+ *   1. command line:  --port 8080 --host 127.0.0.1 --data D:\PSAP\data --demo --config <file>
+ *   2. environment variables (PORT, HOST, DATA_DIR, COOKIE_SECURE, ADMIN_PASSWORD, NOTIFY_WEBHOOK_URL, SESSION_HOURS, SEED)
+ *   3. psap.config.json in the app folder (see psap.config.example.json)
+ */
+function readConfig() {
+  const args = process.argv.slice(2);
+  const arg = (name) => { const i = args.indexOf('--' + name); return i >= 0 ? (args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : true) : undefined; };
+  const cfgPath = path.resolve(arg('config') || process.env.PSAP_CONFIG || path.join(ROOT, 'psap.config.json'));
+  let file = {};
+  if (fs.existsSync(cfgPath)) {
+    try { file = JSON.parse(fs.readFileSync(cfgPath, 'utf8').replace(/^\uFEFF/, '')); }
+    catch (e) { console.error(`Cannot read ${cfgPath}: ${e.message}`); process.exit(1); }
+  }
+  const pick = (cli, env, key, def) => (cli !== undefined ? cli : process.env[env] !== undefined && process.env[env] !== '' ? process.env[env] : file[key] !== undefined ? file[key] : def);
+  const truthy = (v) => v === true || /^(1|true|yes)$/i.test(String(v));
+  return {
+    port: +pick(arg('port'), 'PORT', 'port', 8080),
+    host: String(pick(arg('host'), 'HOST', 'host', '0.0.0.0')),
+    dataDir: arg('data') !== undefined || process.env.DATA_DIR ? path.resolve(ROOT, String(arg('data') !== undefined ? arg('data') : process.env.DATA_DIR))
+      : path.resolve(file.dataDir ? path.dirname(cfgPath) : ROOT, String(file.dataDir || 'data')),
+    cookieSecure: truthy(pick(undefined, 'COOKIE_SECURE', 'cookieSecure', false)),
+    adminPassword: pick(undefined, 'ADMIN_PASSWORD', 'adminPassword', ''),
+    webhook: String(pick(undefined, 'NOTIFY_WEBHOOK_URL', 'notifyWebhookUrl', '') || ''),
+    sessionHours: +pick(undefined, 'SESSION_HOURS', 'sessionHours', 168),
+    seedDemo: arg('demo') === true || /^demo$/i.test(String(pick(undefined, 'SEED', 'seed', ''))),
+    configFile: fs.existsSync(cfgPath) ? cfgPath : null,
+  };
+}
+const CFG = readConfig();
+const PORT = CFG.port;
+const HOST = CFG.host;
+const DATA_DIR = CFG.dataDir;
+const COOKIE_SECURE = CFG.cookieSecure;
+const SESSION_MS = CFG.sessionHours * 3600e3;
+const WEBHOOK = CFG.webhook;
 
 // ------------------------------------------------------------------- db
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -414,16 +442,16 @@ async function handle(req, res) {
 // ------------------------------------------------------------- startup
 function bootstrap() {
   state = loadState();
-  const seedDemo = /^demo$/i.test(process.env.SEED || '');
+  const seedDemo = CFG.seedDemo;
   if (!state) {
     state = seedDemo ? P.migrate(P.demoState()) : P.migrate(P.emptyState());
     writeAll(state);
     console.log(`Created new ${seedDemo ? 'DEMO' : 'empty'} center in ${DATA_DIR}`);
   }
   if (q.userCount.get().n === 0) {
-    const pw = process.env.ADMIN_PASSWORD || randomPassword();
-    q.addUser.run(P.uid('usr'), 'admin', hashPassword(pw), 'admin', null, process.env.ADMIN_PASSWORD ? 0 : 1, new Date().toISOString());
-    console.log('\n  Admin account created.  username: admin   password: ' + pw + (process.env.ADMIN_PASSWORD ? '' : '   (must be changed at first sign-in)') + '\n');
+    const pw = CFG.adminPassword || randomPassword();
+    q.addUser.run(P.uid('usr'), 'admin', hashPassword(pw), 'admin', null, CFG.adminPassword ? 0 : 1, new Date().toISOString());
+    console.log('\n  Admin account created.  username: admin   password: ' + pw + (CFG.adminPassword ? '' : '   (must be changed at first sign-in)') + '\n');
     if (seedDemo) {
       const demoPw = 'demo-password';
       const used = new Set(['admin']);
@@ -446,6 +474,17 @@ function bootstrap() {
 
 if (require.main === module) {
   bootstrap();
-  http.createServer(handle).listen(PORT, HOST, () => console.log(`PSAP Scheduler running at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`));
+  const server = http.createServer(handle);
+  server.on('error', (e) => {
+    console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use — another copy may be running, or pick a different port.` : e.message);
+    process.exit(1);
+  });
+  server.listen(PORT, HOST, () => {
+    console.log(`PSAP Scheduler running at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
+    console.log(`  data: ${DATA_DIR}${CFG.configFile ? '   config: ' + CFG.configFile : ''}${COOKIE_SECURE ? '   (secure cookies — HTTPS only)' : ''}`);
+  });
+  const stop = () => { console.log('Shutting down'); server.close(); try { db.close(); } catch { /* ignore */ } process.exit(0); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
 }
 module.exports = { handle, bootstrap, db, getState: () => state };

@@ -3,3 +3,7 @@ node_modules/
 *.log
 data/
 data-demo/
+psap.config.json
+logs/
+scripts/windows/run-server.cmd
+scripts/windows/run-backup.cmd

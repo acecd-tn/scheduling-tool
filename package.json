@@ -3,10 +3,13 @@
   "version": "0.2.0",
   "private": true,
   "description": "24x7 scheduling, staffing, overtime and bid tool for emergency communications centers (PSAPs).",
-  "engines": { "node": ">=22.5" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node --no-warnings=ExperimentalWarning server/server.js",
-    "demo": "SEED=demo DATA_DIR=./data-demo node --no-warnings=ExperimentalWarning server/server.js",
+    "demo": "node --no-warnings=ExperimentalWarning server/server.js --demo --data data-demo",
+    "backup": "node --no-warnings=ExperimentalWarning server/backup.js",
     "test": "node --no-warnings=ExperimentalWarning --test tests/*.test.js"
   }
 }

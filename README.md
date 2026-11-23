@@ -10,7 +10,7 @@ overtime rule.
 
 **1. Multi-user server (normal use).** Supervisors and employees each sign in.
 
-Requirements: Node.js 22.5 or newer (Windows or Linux). Nothing else is needed:
+Requirements: Node.js 22.13 or newer (Windows or Linux). Nothing else is needed:
 no `npm install` and no database server. Data lives in one SQLite file.
 
 ```bash
@@ -37,9 +37,16 @@ npm run demo
 | `NOTIFY_WEBHOOK_URL` | none | Each notification is POSTed here as JSON (see below). |
 | `SESSION_HOURS` | `168` | How long a sign-in lasts. |
 
+**Windows Server:** see **[docs/WINDOWS.md](docs/WINDOWS.md)**. It has an install
+script (Windows service + nightly backup), IIS HTTPS setup, updates and
+troubleshooting. Settings can go in a `psap.config.json` file (see
+`psap.config.example.json`) instead of environment variables.
+
 **HTTPS:** put it behind the county's reverse proxy (IIS with URL Rewrite/ARR,
 nginx, or an Azure/AWS load balancer) with a certificate, and set `COOKIE_SECURE=1`.
-It needs to stay running, e.g. as a Windows service (NSSM) or a systemd unit.
+
+**Backups:** `npm run backup` (or `node server/backup.js <folder>`) makes a safe copy
+while the server is running.
 
 **2. Single computer.** Open `index.html` directly in a browser. Data stays in that
 browser and there are no logins. Use **View as** in the top bar to preview what an
@@ -124,5 +131,8 @@ js/actions.js           workflow rules (requests, trades, postings, bids); run b
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page
 server/server.js        HTTP server, auth, SQLite storage, audit, live updates
+server/backup.js        online backup with retention
+scripts/windows/        install/uninstall scripts and IIS web.config
+docs/WINDOWS.md         Windows Server installation guide
 tests/                  engine, workflow and server API tests: npm test
 ```
