@@ -172,6 +172,11 @@ Restart the service after editing it (`nssm restart PSAPScheduler`, or Services)
    ```bat
    %windir%\system32\inetsrv\appcmd.exe set config -section:system.webServer/proxy /enabled:"True" /responseBufferLimit:"0" /commit:apphost
    ```
+   Check it took effect (the output should include `enabled="true"`). If this step is
+   skipped, browsing to the site gives **HTTP 404.4**:
+   ```bat
+   %windir%\system32\inetsrv\appcmd.exe list config -section:system.webServer/proxy
+   ```
 3. **Create the site.** IIS Manager → Sites → *Add Website*:
    - Name `PSAP Scheduler`, physical path `C:\PSAP\iis` (an empty folder).
    - Binding **https**, port 443, host name `schedule.county.local`, and your
@@ -273,6 +278,9 @@ one during a maintenance window, then restart the service. Windows Updates as us
 | `Port 8080 is already in use` in the log | Another program (or a second copy of the app) uses it. Stop it, or change `port` in the config **and** in the IIS `web.config`. |
 | Sign-in succeeds but you're immediately back at the sign-in page | You're on plain `http://` with `cookieSecure: true`. Use the HTTPS address, or set it to `false` for testing. |
 | Other people's changes take a while to appear | IIS is buffering the live-update stream. Set the ARR response buffer threshold to 0 (Step 5.2) and keep compression off in `web.config`. |
+| IIS shows **404.4** ("does not have a handler associated with it") | The rewrite rule is working but IIS isn't allowed to forward requests: ARR isn't installed or its proxy is off. Check the server node in IIS Manager has *Application Request Routing Cache* (install ARR 3.0 if not), then run the `appcmd` command in Step 5.2 and confirm with `appcmd.exe list config -section:system.webServer/proxy` (look for `enabled="true"`). No restart needed. |
+| IIS shows 404.0 or 403.14 | `web.config` isn't in the site's physical folder (`C:\PSAP\iis`). |
+| IIS shows 500.19 | URL Rewrite isn't installed, so IIS can't read `web.config`. Install URL Rewrite. |
 | IIS shows 502.3 / 502.2 | The app isn't running or the port in `web.config` is wrong. Check the service and `server.log`. |
 | "ExperimentalWarning: SQLite" in the log | Harmless. It's Node's built-in database module; the service command hides it. |
 | Backups to a share fail | The task runs as SYSTEM, which reaches network shares as the server's computer account (`DOMAIN\SERVERNAME$`). Grant that account write access to the share. |
