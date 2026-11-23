@@ -82,7 +82,7 @@
       return `<div class="page-head"><div><h1>Console assignments</h1>
           <p>${P.shortDate(day)} ${P.mil(sdStart)} → ${P.shortDate(day + 1)} ${P.mil(sdEnd)} · people on duty are placed on consoles by certification, filling consoles in priority order (${order.map((p) => esc(p.name)).join(' → ')}).</p></div>
         <div class="toolbar"><button class="btn" data-action="con-move" data-dir="-1">◀</button><button class="btn" data-action="con-today">Today</button><button class="btn" data-action="con-move" data-dir="1">▶</button>
-        <input type="date" value="${P.fmtDate(day)}" data-change="con-date"><button class="btn" onclick="window.print()">Print</button></div></div>
+        <input type="date" value="${P.fmtDate(day)}" data-change="con-date"><button class="btn" data-action="print" title="Print or save as PDF">Print</button></div></div>
         ${st.center.coverageMode === 'home' ? '<div class="callout warn">Coverage is set to count each person at their preferred console only (Settings). Switch to console assignment to use certifications.</div>' : ''}
         <div class="grid">${html}</div>
         <p class="small muted">The scheduling day runs ${P.mil(sdStart)} to ${P.mil(sdEnd)} (Settings → Console coverage). Pinning holds a person on one console for their shift on this scheduling day; "Auto" lets the scheduler place them.</p>`;

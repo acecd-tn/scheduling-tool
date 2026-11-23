@@ -92,3 +92,17 @@ test('static files: app is served, server code and data are not', async () => {
   assert.equal((await fetch(base + '/data/psap.db')).status, 404);
   assert.equal((await fetch(base + '/js/../server/server.js')).status, 404);
 });
+
+test('strict Content-Security-Policy: no inline scripts or inline event handlers anywhere', async () => {
+  const r = await fetch(base + '/');
+  const csp = r.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self';/);
+  assert.doesNotMatch(csp, /script-src[^;]*unsafe-inline/);
+  const files = ['index.html'].concat(fs.readdirSync(path.join(__dirname, '..', 'js')).filter((f) => f.endsWith('.js')).map((f) => 'js/' + f),
+    fs.readdirSync(path.join(__dirname, '..', 'js', 'views')).map((f) => 'js/views/' + f));
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    assert.doesNotMatch(src, /\son(click|submit|change|input|load|keydown|keyup)\s*=\s*["']/i, f + ' has an inline event handler');
+    if (f.endsWith('.html')) assert.doesNotMatch(src, /<script>(?!\s*<\/script>)/, f + ' has an inline script');
+  }
+});

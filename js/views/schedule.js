@@ -87,7 +87,7 @@
           <input type="date" value="${P.fmtDate(from)}" data-change="sched-date">
           <select data-change="sched-days">${App.opts([{ id: 7, name: '1 week' }, { id: 14, name: '2 weeks' }, { id: 28, name: '4 weeks' }], u.days)}</select>
           <select data-change="sched-pos"><option value="all">All job classes</option>${App.opts(P.jobClasses(st), u.pos)}</select>
-          <button class="btn" onclick="window.print()">Print</button>
+          <button class="btn" data-action="print" title="Print or save as PDF">Print</button>
         </div></div>
       <div class="panel"><div class="legend" style="margin-bottom:8px">
         ${st.shiftTemplates.map((t) => `<span><span class="shift" style="background:${esc(t.color)}">${esc(t.code)}</span>${esc(t.start.replace(':', ''))} ${t.hours}h</span>`).join('')}

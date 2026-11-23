@@ -215,7 +215,7 @@
     const body = typeof o.body === 'function' ? o.body() : o.body;
     root.innerHTML = `<div class="modal-back" data-action="modal-bg"><div class="modal ${o.wide ? 'wide' : ''}" role="dialog" aria-modal="true">
       <div class="modal-head"><h2>${esc(o.title)}</h2><button class="btn ghost sm" data-action="modal-close" aria-label="Close">✕</button></div>
-      <form class="modal-body" id="modal-form" onsubmit="return false">${body}</form>
+      <form class="modal-body" id="modal-form">${body}</form>
       ${o.footer ? `<div class="modal-foot">${o.footer}</div>` : ''}
     </div></div>`;
     if (o.mount) o.mount(document.getElementById('modal-form'));
@@ -304,7 +304,7 @@
     document.getElementById('nav').innerHTML = '';
     document.getElementById('user-box').innerHTML = '';
     root.innerHTML = `<div class="login panel"><h1>Sign in</h1><p class="muted">PSAP Scheduler</p>
-      <form id="login-form" onsubmit="return false">
+      <form id="login-form">
         <div class="field"><label>Username</label><input name="username" autocomplete="username" autofocus required style="width:100%"></div>
         <div class="field"><label>Password</label><input name="password" type="password" autocomplete="current-password" required style="width:100%"></div>
         <button class="btn primary" data-action="login" style="width:100%;justify-content:center">Sign in</button>
@@ -324,7 +324,7 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest('#login-form')) { e.preventDefault(); App.actions.login(); } });
   App.actions['logout'] = async () => { try { await api('POST', '/api/logout', {}); } catch { /* ignore */ } App.me = null; S = null; if (events) events.close(); render(); };
   function pwForm(first) {
-    return `<form id="pw-form" onsubmit="return false">
+    return `<form id="pw-form">
       ${first ? '<p>Choose a new password before continuing.</p>' : ''}
       <div class="field"><label>Current password</label><input name="current" type="password" autocomplete="current-password" style="width:100%"></div>
       <div class="field"><label>New password (10+ characters)</label><input name="next" type="password" autocomplete="new-password" style="width:100%"></div>
@@ -365,6 +365,11 @@
   };
   document.addEventListener('change', onChange);
   document.addEventListener('input', (ev) => { if (ev.target.closest('[data-live]')) onChange(ev); });
+
+  // Forms never submit to the server; buttons do the work. (No inline handlers, so the
+  // app runs under a strict Content-Security-Policy.)
+  document.addEventListener('submit', (ev) => ev.preventDefault());
+  App.actions['print'] = () => window.print();
 
   App.actions['toggle-theme'] = () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';

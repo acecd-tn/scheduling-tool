@@ -288,7 +288,7 @@ function serveStatic(req, res, pathname) {
       'cache-control': 'no-cache',
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'same-origin',
-      'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+      'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
     });
     res.end(buf);
   });

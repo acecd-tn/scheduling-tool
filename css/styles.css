@@ -201,11 +201,25 @@ table.positions td:first-child input { min-width: 150px; }
   .g2 { grid-template-columns: 1fr; }
   .brand { min-width: 0; }
 }
+@page { size: landscape; margin: 10mm; }
 @media print {
-  .topbar, .toolbar, .btn, .no-print { display: none !important; }
-  body { background: #fff; color: #000; }
+  .topbar, .toolbar, .btn, .no-print, .tabs, #modal-root, .toasts, details.pins, select[data-change="pin"] { display: none !important; }
+  /* paper is always light, whatever theme is on screen */
+  :root, :root[data-theme="dark"], :root[data-theme="light"] {
+    --bg: #fff; --panel: #fff; --panel-2: #f3f5f7; --border: #c9d0d6; --text: #000; --muted: #444;
+    --accent: #1d4ed8; --accent-2: #1d4ed8; --ok-bg: #dcfce7; --warn-bg: #fef3c7; --bad-bg: #fee2e2; --info-bg: #dbeafe;
+    color-scheme: light;
+  }
+  body { background: #fff; color: #000; font-size: 11px; }
   .panel { border: 0; padding: 0; }
+  .sub-block, .console-block { break-inside: avoid; }
+  tr { break-inside: avoid; }
   .view { padding: 0; max-width: none; }
+  /* print everything, not just what fits in a scroll box */
+  .table-wrap { max-height: none !important; overflow: visible !important; }
+  .sched .name, .sched .group td, th { position: static !important; }
+  .grid.g2 { grid-template-columns: 1fr; }
+  .badge, .shift { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
 /* auth */

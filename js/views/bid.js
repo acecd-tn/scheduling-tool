@@ -216,7 +216,7 @@
         ${bid.status === 'open' ? `<button class="btn sm" data-action="bid-skip" ${cur ? '' : 'disabled'}>Skip current</button><button class="btn sm" data-action="bid-auto">Auto-assign remaining</button><button class="btn sm" data-action="bid-status" data-s="draft">Back to draft</button>` : ''}
         ${editable ? '<button class="btn sm" data-action="line-gen" data-target="bid">+ Generate lines</button><button class="btn sm" data-action="bid-copy-current">+ Copy current lines</button>' : ''}
         ${bid.status !== 'applied' ? '<button class="btn sm primary" data-action="bid-apply">Apply to schedule</button>' : '<span class="badge ok">Applied</span>'}
-        <button class="btn sm" onclick="window.print()">Print</button></span></h2>
+        <button class="btn sm" data-action="print" title="Print or save as PDF">Print</button></span></h2>
       <div class="kpis">
         ${App.kpi('Lines / bidders', `${bid.lines.length} / ${order.length}`, bid.lines.length < order.length ? 'Not enough lines for everyone' : bid.lines.length > order.length ? `${bid.lines.length - order.length} line(s) will be vacant` : 'One line per bidder', bid.lines.length < order.length ? 'bad' : bid.lines.length > order.length ? 'warn' : 'ok')}
         ${App.kpi('Line hours vs minimum', `${hrs(lineHrs)} / ${hrs(reqHrs)}`, 'avg weekly hours if every line is filled, before leave', lineHrs < reqHrs ? 'bad' : lineHrs < reqHrs * 1.12 ? 'warn' : 'ok')}
