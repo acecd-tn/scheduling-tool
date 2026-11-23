@@ -52,6 +52,9 @@
             <div class="field"><label>Counts for an hour if on duty ≥ (min)</label>${num('minPresenceMinutes', 5)}</div>
           </div>
           <label class="check">${chk('tradeRequiresApproval')} Shift trades need supervisor approval</label>
+          <div class="field" style="margin-top:8px"><label>Mandatory (forced) OT order</label><select data-change="center" data-k="forceOrderBasis">
+            <option value="lastOT" ${c.forceOrderBasis !== 'lastForced' ? 'selected' : ''}>Longest since any OT worked, then least senior</option>
+            <option value="lastForced" ${c.forceOrderBasis === 'lastForced' ? 'selected' : ''}>Longest since last forced, then least senior</option></select></div>
           <h3 style="margin-top:12px">Fatigue & fill rules</h3>
           <div class="form-grid">
             <div class="field"><label>Min rest between shifts (h)</label>${num('minRestHours', 0.5)}</div>

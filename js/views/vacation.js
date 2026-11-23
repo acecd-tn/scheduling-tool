@@ -32,7 +32,7 @@
       <div class="form-grid"><div class="field"><label>First day off</label><input type="date" id="vac-from" min="${esc(vb.from)}" max="${esc(vb.to)}"></div>
       <div class="field"><label>Last day off</label><input type="date" id="vac-to" min="${esc(vb.from)}" max="${esc(vb.to)}"></div>
       <div class="field"><label>&nbsp;</label><div><button class="btn primary" data-action="vac-pick">Pick</button> <button class="btn" data-action="vac-pass">Pass this round</button></div></div></div>
-      <p class="small muted">Up to ${vb.maxDaysPerPick || '∞'} calendar days per pick. Red days on the calendar are already at the ${esc(App.posName(turn.employee.positionId))} limit.</p></div>` : '';
+      <p class="small muted">Up to ${vb.maxDaysPerPick || '∞'} ${vb.pickUnit === 'calendar' ? 'calendar days' : 'scheduled workdays'} per pick. Red days on the calendar are already at the ${esc(App.posName(turn.employee.positionId))} limit.</p></div>` : '';
     const status = turn ? (myTurn ? '' : `<div class="callout">Now picking: <b>${esc(P.empName(turn.employee))}</b> (round ${turn.round}).${me && order.some((e) => e.id === me) ? ` You are #${order.findIndex((e) => e.id === me) + 1} in order.` : ''}</div>`) : `<div class="callout">${vb.status === 'draft' ? 'Draft — not open yet.' : 'This bid is closed.'}</div>`;
     return `${status}${pickForm}
       ${App.isSup() ? `<div class="toolbar" style="margin-bottom:12px">${vb.status === 'draft' ? '<button class="btn primary" data-action="vac-open">Open bidding & notify staff</button>' : ''}${vb.status === 'open' ? '<button class="btn" data-action="vac-close">Close</button>' : ''}${(vb.picks || []).length ? '<button class="btn" data-action="vac-undo">Undo last pick</button>' : ''}<button class="btn danger" data-action="vac-del">Delete</button>
@@ -87,10 +87,11 @@
       body: `<div class="form-grid"><div class="field"><label>Name</label><input name="name" value="${y} vacation bid"></div>
         <div class="field"><label>Leave from</label><input type="date" name="from" value="${y}-01-01"></div>
         <div class="field"><label>Leave through</label><input type="date" name="to" value="${y}-12-31"></div>
-        <div class="field"><label>Rounds</label><input type="number" name="rounds" min="1" value="2"></div>
-        <div class="field"><label>Max calendar days per pick</label><input type="number" name="maxDaysPerPick" min="1" value="14"></div></div>
+        <div class="field"><label>Rounds</label><input type="number" name="rounds" min="1" value="3"></div>
+        <div class="field"><label>Max per pick</label><input type="number" name="maxDaysPerPick" min="1" value="5"></div>
+        <div class="field"><label>Counted as</label><select name="pickUnit"><option value="shifts">scheduled workdays</option><option value="calendar">calendar days</option></select></div></div>
         <div class="field"><label>Disciplines in this bid (one combined seniority list)</label><div class="pill-list">${st.positions.map((p) => `<label class="check"><input type="checkbox" data-multi="1" name="positionIds" value="${p.id}" checked> ${esc(p.name)}</label>`).join('')}</div></div>
-        <div class="field"><label>Most people off per day, by discipline (blank = no limit)</label><div class="form-grid">${st.positions.map((p) => `<div><label>${esc(p.name)}</label><input type="number" min="0" name="cap_${p.id}" value="${p.isConsole ? 2 : 1}"></div>`).join('')}</div></div>
+        <div class="field"><label>Most people off per day, by discipline (blank = no limit)</label><div class="form-grid">${st.positions.map((p) => { const d = (st.center.maxOffPerDay || {})[p.id]; return `<div><label>${esc(p.name)}</label><input type="number" min="0" name="cap_${p.id}" value="${d != null && d !== '' ? d : 1}"></div>`; }).join('')}</div></div>
         <p class="small muted">The limit counts approved and pending vacation, comp and holiday leave already on the books.</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="vac-create">Create (draft)</button>',
     });
@@ -100,7 +101,7 @@
     if (!f.from || !f.to || f.to < f.from) return App.toast('Check the dates', true);
     const caps = {};
     for (const p of App.S.positions) if (f['cap_' + p.id] !== '') caps[p.id] = +f['cap_' + p.id];
-    const vb = { id: P.uid('vb'), name: f.name, from: f.from, to: f.to, rounds: Math.max(1, +f.rounds || 1), maxDaysPerPick: +f.maxDaysPerPick || null, positionIds: f.positionIds || [], caps, status: 'draft', picks: [], createdAt: new Date().toISOString() };
+    const vb = { id: P.uid('vb'), name: f.name, from: f.from, to: f.to, rounds: Math.max(1, +f.rounds || 1), maxDaysPerPick: +f.maxDaysPerPick || null, pickUnit: f.pickUnit, positionIds: f.positionIds || [], caps, status: 'draft', picks: [], createdAt: new Date().toISOString() };
     App.ui.vac.id = vb.id;
     App.commit((s) => s.vacationBids.push(vb), 'Vacation bid created');
     App.closeModal();

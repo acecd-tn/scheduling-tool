@@ -69,7 +69,8 @@ and after. That matters for grievances and payroll disputes.
 - **Openings.** Every hour below minimum, its cause (call-out, vacation, FMLA,
   training, structural) and its OT cost. Fill it directly from a ranked list:
   - Voluntary order: holdover/early-in first, then fewest OT hours.
-  - Force order: least recently forced, then least senior.
+  - Force order: longest since any OT was worked, then least senior (or "longest since
+    last forced"; set in Settings).
   - The list enforces rest and max-hour rules.
   - Or **post it**: eligible staff are notified and sign up. It goes to the first
     eligible volunteer, or a supervisor awards it in OT-list order.
@@ -88,8 +89,10 @@ and after. That matters for grievances and payroll disputes.
 - **Shift bid.** Generate lines, bid in seniority order (employees pick on their own
   turn and are notified when it arrives), preview coverage, then apply on an
   effective date.
-- **Vacation bid.** Rounds in seniority order with a daily limit per discipline. Each
-  pick is approved immediately; a calendar shows full days.
+- **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
+  (or calendar days), and a daily limit per discipline (default 1). Each pick is
+  approved immediately; a calendar shows full days. The same per-discipline limit
+  (Staff → Max off / day) flags ordinary time-off requests that would exceed it.
 - **Planner.** FTE needed and relief factor per schedule type against your minimums.
 
 ## Notifications

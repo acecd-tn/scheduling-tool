@@ -386,7 +386,7 @@
   }
 
   App.start = async function () {
-    window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+    window.addEventListener('hashchange', () => { if (modalState) App.closeModal(); render(); window.scrollTo(0, 0); });
     tick();
     setInterval(tick, 15000);
     let lastHour = new Date().getHours();

@@ -46,7 +46,7 @@
               return `<tr><td>${esc(P.empName(App.emp(e.employeeId)))}</td><td>${esc(App.excType(e.type).label)}</td>
               <td class="nowrap">${P.shortDate(P.parseDate(e.date))}${e.endDate ? ' → ' + P.shortDate(P.parseDate(e.endDate)) : ''}</td>
               <td class="num">${hrs(imp.leaveHours)}</td>
-              <td>${imp.addedGapHours ? `<span class="badge bad">+${hrs(imp.addedGapHours)} h below min</span> <span class="small muted">≈ ${money(imp.cost)} OT</span>` : '<span class="badge ok">No coverage impact</span>'}</td>
+              <td>${(() => { const ov = P.overLeaveLimit(st, e); return ov.length ? `<span class="badge bad" title="${esc(ov.map((o) => P.shortDate(o.day) + ': ' + o.others.map((id) => P.empName(App.emp(id))).join(', ')).join('; '))}">over daily limit ${ov.length} day(s)</span> ` : ''; })()}${imp.addedGapHours ? `<span class="badge bad">+${hrs(imp.addedGapHours)} h below min</span> <span class="small muted">≈ ${money(imp.cost)} OT</span>` : '<span class="badge ok">No coverage impact</span>'}</td>
               <td class="nowrap"><button class="btn sm primary" data-action="exc-status" data-id="${e.id}" data-status="approved">Approve</button> <button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="denied">Deny</button></td></tr>`;
             }).join('')}
           </tbody></table></div>` : '<div class="empty">No pending requests.</div>'}
@@ -121,12 +121,12 @@
         <div class="field"><label>List order</label><div class="seg"><button type="button" class="${F.order === 'voluntary' ? 'on' : ''}" data-action="fill-order" data-order="voluntary">Voluntary</button><button type="button" class="${F.order === 'mandatory' ? 'on' : ''}" data-action="fill-order" data-order="mandatory">Mandatory / force</button></div></div>
       </div>
       ${slot.hours > F.hours ? `<p class="small muted">Opening is ${hrs(slot.hours)} h; this assignment covers ${hrs(F.hours)} h. The remainder stays open so you can split it (e.g. holdover + early-in).</p>` : ''}
-      <p class="small muted">${F.order === 'voluntary' ? 'Voluntary order: holdover / early-in first, then fewest OT hours this fiscal year, then seniority.' : 'Force order: never / least-recently forced first, then least senior.'}
+      <p class="small muted">${F.order === 'voluntary' ? 'Voluntary order: holdover / early-in first, then fewest OT hours this fiscal year, then seniority.' : (st.center.forceOrderBasis === 'lastForced' ? 'Force order: longest since last forced first, then least senior.' : 'Force order: longest since last overtime worked first, then least senior.')}
         Hard rules: not already working, not on leave, ≥ ${st.center.minRestHours} h rest, ≤ ${st.center.maxShiftHours} h continuous.</p>
-      <div class="table-wrap" style="max-height:48vh"><table><thead><tr><th>#</th><th>Employee</th><th>Fit</th><th class="num">Hrs last 7d</th><th class="num">OT hrs FY</th><th>Last forced</th><th class="num">OT hrs added</th><th class="num">Est. cost</th><th></th></tr></thead><tbody>
+      <div class="table-wrap" style="max-height:48vh"><table><thead><tr><th>#</th><th>Employee</th><th>Fit</th><th class="num">Hrs last 7d</th><th class="num">OT hrs FY</th><th>${st.center.forceOrderBasis === 'lastForced' ? 'Last forced' : 'Last OT'}</th><th class="num">OT hrs added</th><th class="num">Est. cost</th><th></th></tr></thead><tbody>
       ${shown.map((c, i) => `<tr class="${c.eligible ? '' : 'dim'}"><td>${i + 1}</td><td>${esc(P.empName(c.emp))} <span class="small muted">#${esc(c.emp.badge || '')} · ${esc(App.posName(c.emp.positionId))}</span></td>
         <td class="small">${c.holdover ? '<span class="badge info">holdover</span> ' : ''}${c.earlyIn ? '<span class="badge info">early-in</span> ' : ''}${c.issues.map((x) => `<span class="badge bad">${esc(x)}</span>`).join(' ')} ${c.warnings.map((x) => `<span class="badge warn">${esc(x)}</span>`).join(' ')}</td>
-        <td class="num">${hrs(c.hours7)}</td><td class="num">${hrs(c.otFyHours)}</td><td class="nowrap">${c.lastForced || '<span class="muted">never</span>'}</td>
+        <td class="num">${hrs(c.hours7)}</td><td class="num">${hrs(c.otFyHours)}</td><td class="nowrap">${(st.center.forceOrderBasis === 'lastForced' ? c.lastForced : c.lastOT) || '<span class="muted">never</span>'}${c.forcedCount ? ` <span class="small muted">(${c.forcedCount} forced FY)</span>` : ''}</td>
         <td class="num">${hrs(c.otHours)}</td><td class="num">${money(c.cost)}</td>
         <td><button type="button" class="btn sm ${c.eligible ? 'primary' : ''}" data-action="fill-assign" data-emp="${c.emp.id}" data-hold="${c.holdover ? 1 : c.earlyIn ? 2 : 0}">${c.eligible ? 'Assign' : 'Override'}</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">No eligible candidates — try the full list, or split the opening.</td></tr>'}
       </tbody></table></div>

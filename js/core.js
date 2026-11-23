@@ -127,6 +127,8 @@
       coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
       minPresenceMinutes: 30,     // a person counts for an hour if on duty at least this long in it
       tradeRequiresApproval: true,
+      forceOrderBasis: 'lastOT',  // mandatory list: 'lastOT' = longest since any OT worked; 'lastForced' = longest since last forced
+      maxOffPerDay: {},           // planned leave (vacation/comp/holiday) limit per discipline per day; blank = none
       theme: 'dark',
     };
   }
@@ -685,6 +687,13 @@
     const fy = fiscalYear(state, d0);
     const fyFills = state.fills.filter((f) => f.status !== 'cancelled' && f.type !== 'trade' && parseDate(f.date) >= fy.start && parseDate(f.date) <= fy.end);
     const fillsBy = groupBy(fyFills, 'employeeId');
+    // Most recent OT each person worked before this slot (any year; trades don't count).
+    const lastOT = {};
+    for (const f of state.fills) {
+      if (f.status === 'cancelled' || f.type === 'trade') continue;
+      const at = parseDate(f.date) * DAY + parseTime(f.start);
+      if (at < slot.start && (lastOT[f.employeeId] == null || at > lastOT[f.employeeId])) lastOT[f.employeeId] = at;
+    }
     const mult = +c.otMultiplier || 1.5;
     const slotHours = (slot.end - slot.start) / 60;
     const res = [];
@@ -737,13 +746,15 @@
       res.push({
         emp, eligible: !issues.length, issues, warnings, holdover, earlyIn, blockHours, hours7,
         otFyHours, lastForced: forced.length ? forced[forced.length - 1] : null, forcedCount: forced.length,
+        lastOTAt: lastOT[emp.id] ?? null, lastOT: lastOT[emp.id] != null ? fmtDate(Math.floor(lastOT[emp.id] / DAY)) : null,
         otHours, cost: otHours * (+emp.hourlyRate || 0) * mult + (slotHours - otHours) * (+emp.hourlyRate || 0),
       });
     }
     const sen = (e) => parseDate(e.seniorityDate || e.hireDate || '2000-01-01');
     if (opts.order === 'mandatory') {
-      // Force list: never/least-recently forced first, then least senior first.
-      res.sort((a, b) => (b.eligible - a.eligible) || String(a.lastForced || '').localeCompare(String(b.lastForced || '')) || sen(b.emp) - sen(a.emp));
+      // Force list: whoever has gone longest without OT (or without being forced) first, then least senior.
+      const key = c.forceOrderBasis === 'lastForced' ? (x) => (x.lastForced ? parseDate(x.lastForced) * DAY : -Infinity) : (x) => (x.lastOTAt ?? -Infinity);
+      res.sort((a, b) => (b.eligible - a.eligible) || key(a) - key(b) || sen(b.emp) - sen(a.emp));
     } else {
       // Voluntary list: holdovers first, then fewest OT hours this FY, then most senior.
       res.sort((a, b) => (b.eligible - a.eligible) || ((b.holdover || b.earlyIn) - (a.holdover || a.earlyIn)) || a.otFyHours - b.otFyHours || sen(a.emp) - sen(b.emp));
@@ -910,12 +921,28 @@
     return who;
   }
 
+  /** Days in [from,to] where adding `exc` would put its discipline over the center's daily leave limit. */
+  function overLeaveLimit(state, exc) {
+    if (!PLANNED_LEAVE.includes(exc.type)) return [];
+    const emp = state.employees.find((e) => e.id === exc.employeeId);
+    const lim = emp && state.center.maxOffPerDay ? state.center.maxOffPerDay[emp.positionId] : null;
+    if (lim == null || lim === '') return [];
+    const [a, b] = exceptionRange(exc);
+    const out = [];
+    for (let d = a; d <= b; d++) {
+      const who = plannedLeaveOn(state, d, emp.positionId);
+      who.delete(emp.id);
+      if (who.size >= +lim) out.push({ day: d, others: [...who] });
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------------ demo
   function demoState(today = todayNum()) {
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { annualOtBudget: 90000 });
+    Object.assign(s.center, { annualOtBudget: 90000, maxOffPerDay: { pos_ct: 1, pos_law: 1, pos_fire: 1, pos_sup: 1 } });
     // Minimums are set per discipline.
     s.positions = [
       { id: 'pos_ct', name: 'Call-taker', authorized: 18, isConsole: true, priority: 4 },
@@ -1059,7 +1086,7 @@
 
   const api = {
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
-    positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn,
+    positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor,
     lineActiveOn, lineShiftOn, regularShifts, workIntervals, exceptionRange,

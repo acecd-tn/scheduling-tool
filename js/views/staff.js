@@ -17,11 +17,12 @@
         <div class="toolbar"><label class="check"><input type="checkbox" ${ui.staff.showInactive ? 'checked' : ''} data-change="staff-inactive"> Show separated</label>
         <button class="btn primary" data-action="emp-edit">+ Employee</button></div></div>
       <div class="grid g2" style="margin-bottom:14px">
-        <div class="panel"><h2>Positions</h2><table><thead><tr><th>Discipline</th><th class="num">Authorized</th><th class="num">Filled</th><th class="num">Vacant</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th>Console seat</th><th></th></tr></thead><tbody>
+        <div class="panel"><h2>Positions</h2><table><thead><tr><th>Discipline</th><th class="num">Authorized</th><th class="num">Filled</th><th class="num">Vacant</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
           ${sum.map((r) => `<tr><td><input value="${esc(r.position.name)}" data-change="pos-field" data-id="${r.position.id}" data-f="name"></td>
             <td><input type="number" min="0" value="${r.authorized}" data-change="pos-field" data-id="${r.position.id}" data-f="authorized" style="width:80px"></td>
             <td class="num">${r.current}</td><td class="num">${r.vacancies ? `<span class="badge bad">${r.vacancies}</span>` : 0}</td><td class="num">${r.countable}</td>
             <td><input type="number" min="1" value="${esc(r.position.priority ?? '')}" data-change="pos-field" data-id="${r.position.id}" data-f="priority" style="width:70px"></td>
+            <td><input type="number" min="0" value="${esc((st.center.maxOffPerDay || {})[r.position.id] ?? '')}" data-change="max-off" data-id="${r.position.id}" style="width:70px" placeholder="none"></td>
             <td><input type="checkbox" ${r.position.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${r.position.id}" data-f="isConsole"></td>
             <td><button class="btn sm danger" data-action="pos-del" data-id="${r.position.id}">✕</button></td></tr>`).join('')}
         </tbody></table><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Position</button></div>
@@ -83,6 +84,10 @@
     App.api('POST', '/api/users/' + el.dataset.id, { resetPassword: true }).then((r) => showTemp(r, 'Password reset')).catch((e) => App.toast(e.message, true)), 'Reset');
   App.actions['user-toggle'] = (el) => App.api('POST', '/api/users/' + el.dataset.id, { disabled: el.dataset.dis === '1' }).then(() => { App.toast(el.dataset.dis === '1' ? 'Login disabled' : 'Login enabled'); loadUsers(); }).catch((e) => App.toast(e.message, true));
 
+  App.changes['max-off'] = (el) => App.commit((s) => {
+    s.center.maxOffPerDay = Object.assign({}, s.center.maxOffPerDay);
+    if (el.value === '') delete s.center.maxOffPerDay[el.dataset.id]; else s.center.maxOffPerDay[el.dataset.id] = Math.max(0, +el.value);
+  }, 'Leave limit saved');
   App.changes['staff-inactive'] = (el) => { App.ui.staff.showInactive = el.checked; App.render(); };
   App.changes['pos-field'] = (el) => App.commit((s) => {
     const p = s.positions.find((x) => x.id === el.dataset.id);

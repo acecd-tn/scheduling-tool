@@ -364,11 +364,14 @@
     const from = P.parseDate(p.from), to = P.parseDate(p.to || p.from);
     if (to < from) fail('End date is before start date');
     if (from < P.parseDate(vb.from) || to > P.parseDate(vb.to)) fail(`Picks must be between ${vb.from} and ${vb.to}`);
-    if (vb.maxDaysPerPick && to - from + 1 > +vb.maxDaysPerPick) fail(`At most ${vb.maxDaysPerPick} calendar days per pick`);
-    const full = vacConflicts(state, vb, empId, from, to);
-    if (full.length) fail(`Already at the limit for your discipline on ${full.join(', ')}`);
     const scheduled = P.regularShifts(state, from, to).filter((r) => r.employeeId === empId).length;
     if (!scheduled) fail('You are not scheduled on any of those days');
+    if (vb.maxDaysPerPick) {
+      if (vb.pickUnit === 'calendar' && to - from + 1 > +vb.maxDaysPerPick) fail(`At most ${vb.maxDaysPerPick} calendar days per pick`);
+      if (vb.pickUnit !== 'calendar' && scheduled > +vb.maxDaysPerPick) fail(`At most ${vb.maxDaysPerPick} scheduled workdays per pick (that range has ${scheduled})`);
+    }
+    const full = vacConflicts(state, vb, empId, from, to);
+    if (full.length) fail(`Already at the limit for your discipline on ${full.join(', ')}`);
     const ex = { id: P.uid('ex'), employeeId: empId, date: P.fmtDate(from), endDate: to > from ? P.fmtDate(to) : null, start: null, hours: null, type: 'vacation', status: 'approved', note: `${vb.name} — round ${turn.round}`, vacationBidId: vb.id, createdAt: nowIso(ctx) };
     state.exceptions.push(ex);
     (vb.picks ||= []).push({ employeeId: empId, round: turn.round, from: ex.date, to: P.fmtDate(to), exceptionId: ex.id, at: nowIso(ctx), by: actor.userId || null });

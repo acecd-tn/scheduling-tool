@@ -81,7 +81,7 @@ test('list-mode posting collects volunteers until a supervisor awards', () => {
 
 test('vacation bid: seniority turns, per-discipline daily cap, rounds', () => {
   const s = center();
-  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', positionIds: ['tc'], rounds: 2, maxDaysPerPick: 14, caps: { tc: 1 }, status: 'draft', picks: [] });
+  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', positionIds: ['tc'], rounds: 2, maxDaysPerPick: 5, pickUnit: 'shifts', caps: { tc: 1 }, status: 'draft', picks: [] });
   A.run(s, sup, 'vacOpen', { bidId: 'vb' }, ctx);
   assert.equal(A.vacTurn(s, s.vacationBids[0]).employee.id, 'a');
   assert.throws(() => A.run(s, as('b'), 'vacPick', { bidId: 'vb', from: '2026-03-01', to: '2026-03-07' }, ctx), /not your turn/);
@@ -101,4 +101,27 @@ test('shift bid: employees pick only on their own turn', () => {
   A.run(s, as('a'), 'shiftBidPick', { bidId: 'b1', lineId: 'x2' }, ctx);
   assert.throws(() => A.run(s, as('b'), 'shiftBidPick', { bidId: 'b1', lineId: 'x2' }, ctx), /taken/);
   assert.ok(s.notifications.some((n) => n.employeeId === 'b' && /turn/.test(n.title)));
+});
+
+test('vacation pick limit counts scheduled workdays (5 = a full week off on 5x8)', () => {
+  const s = center();
+  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', positionIds: ['tc'], rounds: 1, maxDaysPerPick: 5, pickUnit: 'shifts', caps: {}, status: 'draft', picks: [] });
+  A.run(s, sup, 'vacOpen', { bidId: 'vb' }, ctx);
+  // a works Sun-Thu: 2026-03-01 (Sun) .. 03-07 (Sat) = 5 workdays → allowed.
+  assert.throws(() => A.run(s, as('a'), 'vacPick', { bidId: 'vb', from: '2026-03-01', to: '2026-03-09' }, ctx), /5 scheduled workdays/);
+  A.run(s, as('a'), 'vacPick', { bidId: 'vb', from: '2026-03-01', to: '2026-03-07' }, ctx);
+});
+
+test('mandatory list: longest since any OT first, then least senior', () => {
+  const s = center();
+  // a (most senior) and b both off Sun? a works Sun; use a Saturday 15:00-19:00 slot: a off, b works Sat 0700-1500 (holdover), c works Sat.
+  s.employees.push({ id: 'd', firstName: 'd', lastName: 'D', positionId: 'tc', status: 'active', hourlyRate: 20, seniorityDate: '2010-01-01', qualifications: [] });
+  s.employees.push({ id: 'e', firstName: 'e', lastName: 'E', positionId: 'tc', status: 'active', hourlyRate: 20, seniorityDate: '2015-01-01', qualifications: [] });
+  s.fills.push({ id: 'f1', date: '2026-01-02', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'e', type: 'voluntary' });
+  s.fills.push({ id: 'f2', date: '2025-12-01', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'a', type: 'voluntary' });
+  const day = D('2026-01-10');
+  const order = P.fillCandidates(s, { positionId: 'tc', start: day * 1440 + 15 * 60, end: day * 1440 + 19 * 60 }, { order: 'mandatory' })
+    .filter((c) => c.eligible).map((c) => c.emp.id);
+  // d never worked OT (first among never-OT by least senior: d 2010 vs others), then a (Dec), then e (Jan).
+  assert.deepEqual(order.filter((x) => ['a', 'd', 'e'].includes(x)), ['d', 'a', 'e']);
 });
