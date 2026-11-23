@@ -175,8 +175,18 @@ listening on.
 ## Step 5: HTTPS with IIS
 
 1. **Install IIS and the add-ons.** Server Manager → Add Roles → *Web Server (IIS)*.
-   Then install **URL Rewrite** and **Application Request Routing 3.0** (from
-   iis.net / the Microsoft download center).
+   Then install, in this order (x64 installers; on a server without internet access,
+   download them on another PC):
+   - **URL Rewrite 2.1**: https://www.iis.net/downloads/microsoft/url-rewrite
+   - **Application Request Routing 3.0** (`requestRouter_amd64.msi`):
+     https://www.iis.net/downloads/microsoft/application-request-routing
+
+   Close and reopen IIS Manager afterwards. To check both are installed:
+   ```powershell
+   Import-Module WebAdministration
+   Get-WebGlobalModule | Where-Object { $_.Name -match 'Rewrite|ApplicationRequestRouting' } | ForEach-Object { $_.Name }
+   ```
+   You should see `RewriteModule` and `ApplicationRequestRouting`.
 2. **Turn on the proxy.** In IIS Manager select the *server* node → *Application
    Request Routing Cache* → *Server Proxy Settings* → check **Enable proxy**. Set
    **Response buffer threshold** to `0` so live updates stream immediately.
@@ -191,8 +201,8 @@ listening on.
    ```
    In Command Prompt instead of PowerShell, drop the leading `& "` and the closing `"`
    and write the path as `%windir%\system32\inetsrv\appcmd.exe`. PowerShell doesn't
-   understand `%windir%`. If either command says the section can't be found, ARR
-   isn't installed.
+   understand `%windir%`. If either command says `Unknown config section
+   "system.webServer/proxy"`, ARR isn't installed: go back to step 1.
 3. **Create the site.** IIS Manager → Sites → *Add Website*:
    - Name `PSAP Scheduler`, physical path `C:\PSAP\iis` (an empty folder).
    - Binding **https**, port 443, host name `schedule.county.local`, and your
@@ -296,6 +306,7 @@ one during a maintenance window, then restart the service. Windows Updates as us
 | Sign-in succeeds but you're immediately back at the sign-in page | You're on plain `http://` with `cookieSecure: true`. Use the HTTPS address, or set it to `false` for testing. |
 | Other people's changes take a while to appear | IIS is buffering the live-update stream. Set the ARR response buffer threshold to 0 (Step 5.2) and keep compression off in `web.config`. |
 | IIS shows **404.4** ("does not have a handler associated with it") | The rewrite rule is working but IIS isn't allowed to forward requests: ARR isn't installed or its proxy is off. Check the server node in IIS Manager has *Application Request Routing Cache* (install ARR 3.0 if not), then run the two PowerShell commands in Step 5.2 (look for `enabled="true"`). No restart needed. |
+| `Unknown config section "system.webServer/proxy"` from appcmd | Application Request Routing isn't installed. Install ARR 3.0 (Step 5.1), reopen IIS Manager (or run `iisreset`), then run the command again. |
 | `The module '%windir%' could not be loaded` | You ran a Command Prompt command in PowerShell. Use the PowerShell form in Step 5.2: `& "$env:windir\system32\inetsrv\appcmd.exe" ...` |
 | IIS shows 404.0 or 403.14 | `web.config` isn't in the site's physical folder (`C:\PSAP\iis`). |
 | IIS shows 500.19 | URL Rewrite isn't installed, so IIS can't read `web.config`. Install URL Rewrite. |
