@@ -261,16 +261,53 @@ backup makes the task fail in Task Scheduler, so it can alert.
 
 ## Updating the app
 
-1. Run a backup (or check that last night's succeeded).
-2. Stop the service: `nssm stop PSAPScheduler` (or Services; for a Scheduled Task
-   install, End the task in Task Scheduler).
-3. Replace the contents of `C:\PSAP\app` with the new version. Settings and data live
-   outside it.
-4. If you used a ZIP: `Get-ChildItem C:\PSAP\app -Recurse | Unblock-File`
-5. Start the service and sign in to check.
+Settings (`C:\PSAP\psap.config.json`), data, logs, backups and the IIS site folder all
+live outside `C:\PSAP\app`, so an update is a folder swap. The old folder is kept as
+`C:\PSAP\app-old` so you can roll back.
 
-If the update changed `scripts\windows\install.ps1`, re-run it after step 3. It is
-safe to re-run: it updates the existing service and backup task.
+1. **Download** the new version on the server: on GitHub, open the repository,
+   choose the branch, then **Code → Download ZIP**. It lands in your Downloads folder.
+2. **Back up, stop, swap and reinstall** in an admin PowerShell. Set `$zip` to the
+   file you downloaded:
+   ```powershell
+   $zip = "$env:USERPROFILE\Downloads\scheduling-tool-main.zip"   # <- your file name
+   cd C:\
+
+   # Back up first
+   Start-ScheduledTask -TaskName "PSAPScheduler Backup"; Start-Sleep 15
+   Get-Content C:\PSAP\logs\backup.log -Tail 2       # expect "Backup OK"
+
+   # Stop the app (startup task; with NSSM use: Stop-Service PSAPScheduler)
+   Stop-ScheduledTask -TaskName PSAPScheduler -ErrorAction SilentlyContinue
+   Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*server\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+   # Swap folders, keeping the old one
+   Unblock-File $zip
+   Remove-Item C:\PSAP\app-old -Recurse -Force -ErrorAction SilentlyContinue
+   Rename-Item C:\PSAP\app app-old
+   Expand-Archive $zip -DestinationPath C:\PSAP\app-new -Force
+   Move-Item (Get-ChildItem C:\PSAP\app-new -Directory | Select-Object -First 1).FullName C:\PSAP\app
+   Remove-Item C:\PSAP\app-new -Recurse -Force
+
+   # Re-run the installer: keeps your settings, refreshes the tasks, starts the app
+   cd C:\PSAP\app
+   powershell -ExecutionPolicy Bypass -File .\scripts\windows\install.ps1 -BehindIIS
+   ```
+3. Sign in and check. Any data upgrades happen automatically when the app starts.
+
+If `Rename-Item` says the folder is in use, close any Explorer windows or PowerShell
+prompts open inside `C:\PSAP\app` and run it again.
+
+**Roll back:** stop the app (as above), then
+`Rename-Item C:\PSAP\app app-bad; Rename-Item C:\PSAP\app-old app`, then
+`Start-ScheduledTask -TaskName PSAPScheduler`.
+
+**Using git instead of ZIPs:** stop the app, `cd C:\PSAP\app; git pull`, re-run the
+installer.
+
+> Installs made before the update guide existed kept the startup-task launchers
+> (`run-server.cmd`, `run-backup.cmd`) inside the app folder. Re-running the installer
+> (as above) moves them to `C:\PSAP`, so later updates can't break them.
 
 Keep **Node.js** patched as well: install the newest 22.x/24.x LTS .msi over the old
 one during a maintenance window, then restart the service. Windows Updates as usual.

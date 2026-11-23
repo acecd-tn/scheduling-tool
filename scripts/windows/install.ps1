@@ -202,7 +202,9 @@ if ($useNssm) {
     }
     Warn "Removed the existing '$ServiceName' service."
   }
-  $wrapper = Join-Path $AppDir 'scripts\windows\run-server.cmd'
+  # Launchers live next to the config file, outside the app folder, so replacing the
+  # app folder during an update doesn't break the tasks.
+  $wrapper = Join-Path (Split-Path $cfgFile) 'run-server.cmd'
   $cmd = "@echo off`r`ncd /d `"$AppDir`"`r`n`"$node`" $nodeArgs >> `"$(Join-Path $LogDir 'server.log')`" 2>&1`r`n"
   [IO.File]::WriteAllText($wrapper, $cmd, (New-Object Text.ASCIIEncoding))
   $action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$wrapper`"" -WorkingDirectory $AppDir
@@ -225,7 +227,7 @@ if ($useNssm) {
 Step "Nightly backup at $BackupTime to $BackupDir (keep $KeepBackups)"
 $bkName = "$ServiceName Backup"
 $bkLog = Join-Path $LogDir 'backup.log'
-$bkWrapper = Join-Path $AppDir 'scripts\windows\run-backup.cmd'
+$bkWrapper = Join-Path (Split-Path $cfgFile) 'run-backup.cmd'
 $bkCmd = "@echo off`r`ncd /d `"$AppDir`"`r`necho %DATE% %TIME% >> `"$bkLog`"`r`n`"$node`" --no-warnings=ExperimentalWarning `"$backupJs`" `"$BackupDir`" --config `"$cfgFile`" --keep $KeepBackups >> `"$bkLog`" 2>&1`r`nexit /b %ERRORLEVEL%`r`n"
 [IO.File]::WriteAllText($bkWrapper, $bkCmd, (New-Object Text.ASCIIEncoding))
 $bkAction = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/c `"$bkWrapper`"" -WorkingDirectory $AppDir
