@@ -152,13 +152,25 @@ nssm start PSAPScheduler
 
 | Key | Meaning |
 |---|---|
+| `port` | The app's internal port (default 8080). If you change it, change the rewrite URL in the IIS site's `web.config` to match (`http://127.0.0.1:<port>/{R:1}`). Staff still browse to 443; the IIS site binding doesn't change. |
 | `host` | `127.0.0.1` behind IIS (recommended). `0.0.0.0` makes the app answer other machines directly, over plain HTTP. |
 | `cookieSecure` | `true` when staff use HTTPS. **Must be `false` if you browse over plain http**, or sign-in won't stick. |
 | `sessionHours` | How long a sign-in lasts (default 7 days). |
 | `notifyWebhookUrl` | Optional. Each notification is POSTed as JSON to this URL, e.g. a Power Automate "When an HTTP request is received" flow that sends email, text or Teams messages. See the README for the payload. |
 | `adminPassword` | Optional, first start only: sets the initial admin password instead of a random one. Remove it afterwards. |
 
-Restart the service after editing it (`nssm restart PSAPScheduler`, or Services).
+Restart after editing it:
+
+- NSSM service: `Restart-Service PSAPScheduler`
+- Startup task (stop the task, stop its node process, start it again):
+  ```powershell
+  Stop-ScheduledTask -TaskName PSAPScheduler
+  Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*server\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  Start-ScheduledTask -TaskName PSAPScheduler
+  ```
+
+The first line the app writes to `server.log` after starting shows the port it is
+listening on.
 
 ## Step 5: HTTPS with IIS
 

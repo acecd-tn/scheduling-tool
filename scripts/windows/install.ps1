@@ -112,6 +112,17 @@ $cfgFile = $ConfigFile
 New-Item -ItemType Directory -Force -Path (Split-Path $cfgFile) | Out-Null
 if (Test-Path $cfgFile) {
   Warn "Keeping existing $cfgFile (edit it by hand to change settings)."
+  # Use the port the app will really listen on, not the -Port default.
+  try {
+    $existingCfg = Get-Content -Path $cfgFile -Raw | ConvertFrom-Json
+    if ($existingCfg.port -and [int]$existingCfg.port -ne $Port) {
+      if ($PSBoundParameters.ContainsKey('Port')) { Warn "-Port $Port ignored: $cfgFile says port $($existingCfg.port). Edit the file to change it." }
+      $Port = [int]$existingCfg.port
+    }
+    Ok "App port (from config): $Port"
+  } catch {
+    Warn "Could not read $cfgFile ($($_.Exception.Message)). Checking port $Port."
+  }
 } else {
   $cfg = [ordered]@{
     port         = $Port
@@ -252,6 +263,7 @@ for ($i = 0; $i -lt 20 -and -not $ok; $i++) {
 }
 if ($ok) {
   Ok "Running: http://localhost:$Port"
+  Warn "Make sure the rewrite URL in the IIS site's web.config uses port $Port (http://127.0.0.1:$Port/{R:1})."
   Write-Host ''
   Write-Host '  FIRST SIGN-IN: the admin password is printed once, in the log:' -ForegroundColor White
   Write-Host "    $(Join-Path $LogDir 'server.log')" -ForegroundColor White
