@@ -24,12 +24,19 @@
       }).join('');
 
       const budgetPct = fc.budget ? fc.projection / fc.budget : 0;
+      // The current scheduling day (e.g. 0700 to 0700), lined up with Consoles and Coverage.
+      const sd = P.schedulingDayOf(S, now);
+      const sdStartH = Math.floor(P.schedulingDayStart(S, sd) / 60);
+      const covSD = sd === today ? cov : P.coverage(S, sd, sd + 1);
+      const sdNowIdx = Math.floor((now - sd * P.DAY) / 60);
+      const edges = new Set(P.shiftBlocks(S, sd).map((b) => Math.floor((b.start - sd * P.DAY) / 60)));
       const strips = S.positions.map((p) => {
         const cells = [], labels = [];
         for (let i = 0; i < 24; i++) {
-          const idx = hourIdx + i, st = cov.staffed[p.id][idx], rq = cov.required[p.id][idx];
-          cells.push(`<div class="${App.covClass(st, rq)}" title="${P.mil(now - (now % 60) + i * 60)}: ${App.fmtStaff(st)} of ${rq}">${App.fmtStaff(st)}/${rq}</div>`);
-          labels.push(`<span>${P.mil(now - (now % 60) + i * 60).slice(0, 2)}</span>`);
+          const idx = sdStartH + i, st = covSD.staffed[p.id][idx], rq = covSD.required[p.id][idx];
+          const t = sd * P.DAY + idx * 60;
+          cells.push(`<div class="${App.covClass(st, rq)} ${idx === sdNowIdx ? 'now' : ''} ${i && edges.has(idx) ? 'edge' : ''}" title="${P.shortDate(Math.floor(t / P.DAY))} ${P.mil(t)}: ${App.fmtStaff(st)} of ${rq}">${App.fmtStaff(st)}/${rq}</div>`);
+          labels.push(`<span>${P.mil(t).slice(0, 2)}</span>`);
         }
         return `<div class="field"><label>${esc(p.name)}</label><div class="strip">${cells.join('')}</div><div class="strip-labels">${labels.join('')}</div></div>`;
       }).join('');
@@ -57,7 +64,7 @@
         ${App.kpi('Projected FY OT', money(fc.projection), `${App.pct(budgetPct)} of budget (run-rate)`, budgetPct > 1 ? 'bad' : budgetPct > 0.9 ? 'warn' : 'ok')}
       </div>
       <div class="grid g2">
-        <div class="panel"><h2>Next 24 hours — staffed / minimum</h2>${strips}
+        <div class="panel"><h2>Today ${P.pad(sdStartH)}00 → ${P.pad(sdStartH)}00 — staffed / minimum</h2>${strips}
           <div class="legend"><span><span class="badge bad">short</span></span><span><span class="badge warn">at minimum</span></span><span><span class="badge ok">above minimum</span></span></div></div>
         <div class="panel"><h2>Staffing levels</h2>
           <div class="table-wrap"><table><thead><tr><th>Job class</th><th class="num">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time filled / part-time authorized (separate from full-time)">Part-time</th><th class="num">Trainees</th><th class="num">Countable</th><th>Fill rate</th></tr></thead><tbody>

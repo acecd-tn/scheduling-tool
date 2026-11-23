@@ -428,6 +428,42 @@ test('job class is the position: staffing, lines and bids follow the explicit jo
   assert.equal(s.lines.filter((l) => l.effectiveTo === '2026-01-31').length, 2);
 });
 
+test('scheduling day: starts at the earliest regular shift; 12s make two shift blocks', () => {
+  const s = P.migrate({ center: { schemaVersion: 4 }, positions: [{ id: 'law', name: 'Law' }, { id: 'fire', name: 'Fire' }], jobClasses: [{ id: 'tc', name: 'TC', positionIds: ['law', 'fire'] }] });
+  s.shiftTemplates.find((t) => t.id === 't_d12').start = '07:00';
+  s.shiftTemplates.find((t) => t.id === 't_n12').start = '19:00';
+  s.employees = [1, 2, 3, 4].map((i) => ({ id: 'e' + i, firstName: 'e', lastName: 'E' + i, jobClassId: 'tc', qualifications: ['law', 'fire'], status: 'active' }));
+  s.lines = [['t_d12', 0], ['t_d12', 2], ['t_n12', 0], ['t_n12', 2]].map(([tpl, o], i) => ({ id: 'l' + i, jobClassId: 'tc', employeeId: 'e' + (i + 1), shiftTemplateId: tpl, patternId: 'p_52', anchorDate: P.fmtDate(D('2026-01-04') + o), effectiveFrom: '2026-01-04' }));
+  const day = D('2026-01-06');
+  assert.equal(P.schedulingDayStart(s, day), 7 * 60);
+  assert.deepEqual(P.shiftBlocks(s, day).map((b) => `${P.mil(b.start)}-${P.mil(b.end)}`), ['0700-1900', '1900-0700']);
+  // 0300 the next morning belongs to this scheduling day.
+  assert.equal(P.schedulingDayOf(s, (day + 1) * 1440 + 3 * 60), day);
+  s.center.dayStartHour = '6';
+  assert.equal(P.schedulingDayStart(s, day), 6 * 60);
+  s.center.dayStartHour = '';
+  s.center.shiftBoundaries = '0700,1500,2300';
+  assert.equal(P.shiftBlocks(s, day).length, 3);
+});
+
+test('pins apply to the shift on the scheduling day it is set for', () => {
+  const s = P.migrate({ center: { schemaVersion: 4, dayStartHour: '7' }, positions: [{ id: 'law', name: 'Law', priority: 1 }, { id: 'fire', name: 'Fire', priority: 2 }], jobClasses: [{ id: 'tc', name: 'TC', positionIds: ['law', 'fire'] }] });
+  for (const pid of ['law', 'fire']) for (const row of s.minimums[pid]) row.fill(1);
+  s.employees = [{ id: 'a', firstName: 'a', lastName: 'A', jobClassId: 'tc', qualifications: ['law', 'fire'], status: 'active' },
+    { id: 'b', firstName: 'b', lastName: 'B', jobClassId: 'tc', qualifications: ['law', 'fire'], status: 'active' }];
+  // Night shift 1900-0700 for both, every day.
+  s.lines = ['a', 'b'].map((e) => ({ id: 'l' + e, jobClassId: 'tc', employeeId: e, shiftTemplateId: 't_n12', patternId: 'p_pt3', anchorDate: '2026-01-05', effectiveFrom: '2026-01-04' }));
+  s.shiftTemplates.find((t) => t.id === 't_n12').start = '19:00';
+  const day = D('2026-01-05'); // Monday; the line works Mon-Wed
+  // Pin 'a' to fire on Monday's scheduling day: holds through 0300 Tuesday too.
+  s.pins.push({ id: 'p', date: '2026-01-05', employeeId: 'a', positionId: 'fire' });
+  const cov = P.coverage(s, day, day + 1, { keepAssign: true });
+  assert.equal(cov.assign[20].a, 'fire');       // Monday 2000
+  assert.equal(cov.assign[24 + 3].a, 'fire');   // Tuesday 0300, same shift
+  const tue = P.coverage(s, day + 1, day + 1, { keepAssign: true });
+  assert.ok(['law', 'fire'].includes(tue.assign[20].a));
+});
+
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);

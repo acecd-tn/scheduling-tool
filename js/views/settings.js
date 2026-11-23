@@ -48,6 +48,11 @@
           <p class="small muted">FLSA default is a 7-day / 40-hour work week, paid leave not counted. Many 12-hour centers use 14/80 or a 7(k)-style period; check your policy / MOU.</p>
           <h3 style="margin-top:12px">Console coverage</h3>
           <div class="form-grid">
+            <div class="field"><label>Scheduling day starts at</label><select data-change="center" data-k="dayStartHour"><option value="">Auto: earliest regular shift (now ${P.mil(P.schedulingDayStart(Object.assign({}, st, { center: Object.assign({}, c, { dayStartHour: '' }) })))})</option>${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${c.dayStartHour !== '' && c.dayStartHour != null && +c.dayStartHour === h ? 'selected' : ''}>${P.pad(h)}00</option>`).join('')}</select></div>
+            <div class="field"><label>Shift changes (optional)</label><input value="${esc(c.shiftBoundaries || '')}" placeholder="e.g. 0700,1900 — blank = from your shifts" data-change="center" data-k="shiftBoundaries"></div>
+          </div>
+          <p class="small muted">Consoles, Coverage and the Dashboard run from this time to the same time the next day, so a 1900-0700 night shift stays in one day. Shift changes divide that day into shifts (${P.shiftBlocks(st, P.todayNum()).map((b) => `${P.mil(b.start)}–${P.mil(b.end)}`).join(', ')}).</p>
+          <div class="form-grid">
             <div class="field"><label>Count staff toward minimums by</label><select data-change="center" data-k="coverageMode"><option value="assigned" ${c.coverageMode !== 'home' ? 'selected' : ''}>Console assignment (use cross-training)</option><option value="home" ${c.coverageMode === 'home' ? 'selected' : ''}>Preferred console only</option></select></div>
             <div class="field"><label>Counts for an hour if on duty ≥ (min)</label>${num('minPresenceMinutes', 5)}</div>
           </div>

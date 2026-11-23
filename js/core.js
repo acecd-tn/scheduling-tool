@@ -126,6 +126,8 @@
       maxHours7Days: 60,
       partTimeFirst: true,        // voluntary list: eligible part-timers (straight time) before full-time OT
       partTimeDefaultCap: 32,     // weekly hour cap for part-timers without their own (part-timers are never forced)
+      dayStartHour: '',           // scheduling day start hour (0-23); '' = earliest regular shift start
+      shiftBoundaries: '',        // e.g. '0700,1900'; '' = worked out from the shifts people work
       coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
       minPresenceMinutes: 30,     // a person counts for an hour if on duty at least this long in it
       tradeRequiresApproval: true,
@@ -525,8 +527,11 @@
     // Console-assignment mode.
     const minPres = Math.max(1, +state.center.minPresenceMinutes || 30);
     const posIds = new Set(state.positions.map((p) => p.id));
+    // Pins apply to a person's shift(s) that start within a scheduling day (e.g. 0700-0700).
     const pins = {};
     for (const pn of state.pins || []) pins[pn.employeeId + '|' + parseDate(pn.date)] = pn.positionId;
+    const dayStartMin = (state.pins || []).length ? schedulingDayStart(state, fromDay) : 0;
+    const schedDay = (abs) => Math.floor((abs - dayStartMin) / DAY);
     const present = Array.from({ length: n }, () => new Map());
     for (const iv of wi.intervals) {
       const emp = ix.emp[iv.employeeId];
@@ -544,7 +549,7 @@
         x.mins += ov;
         // An OT assignment to a console lets them sit it; a trade doesn't grant a console.
         if (iv.kind === 'ot' && iv.fillType !== 'trade' && posIds.has(iv.positionId)) { x.quals.add(iv.positionId); x.otPos = iv.positionId; }
-        const pin = pins[emp.id + '|' + iv.day];
+        const pin = pins[emp.id + '|' + schedDay(iv.start)];
         if (pin && posIds.has(pin)) x.pin = pin;
       }
     }
@@ -1135,6 +1140,92 @@
     return out;
   }
 
+  // ------------------------------------------------------- scheduling day
+  /** Start minutes and weight of each regular shift worked on lines active around `day`. */
+  function shiftStartsInUse(state, day) {
+    const ix = index(state);
+    const counts = {}; // startMin -> { n, hours: {h: n} }
+    const add = (tpl) => {
+      if (!tpl) return;
+      const m = parseTime(tpl.start);
+      const c = counts[m] || (counts[m] = { n: 0, hours: {} });
+      c.n++; c.hours[tpl.hours] = (c.hours[tpl.hours] || 0) + 1;
+    };
+    for (const line of state.lines) {
+      if (!line.employeeId) continue;
+      if (!lineActiveOn(line, day) && !lineActiveOn(line, day + 7)) continue;
+      const pat = ix.pat[line.patternId];
+      const toks = new Set(pat && pat.cycle ? pat.cycle : [1]);
+      for (const t of toks) {
+        if (!t || t === '0') continue;
+        add(t === 1 || t === '1' ? ix.tpl[line.shiftTemplateId] : ix.tpl[t]);
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * When the scheduling day starts, in minutes after midnight: the center setting, or
+   * the earliest start among regular shifts worked by at least two lines (e.g. 0700).
+   */
+  function schedulingDayStart(state, refDay = todayNum()) {
+    const v = state.center.dayStartHour;
+    if (v !== '' && v != null && !isNaN(+v)) return mod(+v, 24) * 60;
+    const counts = shiftStartsInUse(state, refDay);
+    const starts = Object.keys(counts).map(Number).sort((a, b) => a - b);
+    const common = starts.filter((m) => counts[m].n >= 2);
+    const m = (common.length ? common : starts)[0];
+    return m == null ? 7 * 60 : Math.floor(m / 60) * 60;
+  }
+
+  /**
+   * The shifts a scheduling day is made of, e.g. 0700-1900 and 1900-0700. Uses the
+   * center's shift boundaries if set; otherwise tiles the day with the most common
+   * shift starting at each boundary (D 0700-1500, E 1500-2300, M 2300-0700, ...).
+   * Returns [{ start, end }] in absolute minutes.
+   */
+  function shiftBlocks(state, day) {
+    const startMin = schedulingDayStart(state, day);
+    const t0 = day * DAY + startMin, t1 = t0 + DAY;
+    let marks = [];
+    const custom = String(state.center.shiftBoundaries || '').split(/[\s,;]+/).filter(Boolean)
+      .map((x) => { const d = x.replace(':', ''); return d.length <= 2 ? +d * 60 : parseTime(d.slice(0, -2) + ':' + d.slice(-2)); })
+      .filter((m) => !isNaN(m) && m >= 0 && m < DAY);
+    if (custom.length) {
+      marks = custom.map((m) => t0 + mod(m - startMin, DAY));
+    } else {
+      const counts = shiftStartsInUse(state, day);
+      const starts = Object.keys(counts).map(Number).sort((a, b) => a - b);
+      let cur = startMin;
+      marks.push(t0);
+      for (let guard = 0; guard < 12; guard++) {
+        const c = counts[mod(cur, DAY)];
+        let next;
+        if (c) {
+          const hours = +Object.entries(c.hours).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+          next = cur + Math.round(hours * 60);
+        } else {
+          // No shift starts here: jump to the next start time in use.
+          const later = starts.map((m) => cur + mod(m - cur, DAY)).filter((m) => m > cur).sort((a, b) => a - b);
+          next = later.length ? later[0] : cur + DAY;
+        }
+        if (next - startMin >= DAY) break;
+        marks.push(t0 + (next - startMin));
+        cur = next;
+      }
+    }
+    marks = [...new Set(marks.concat([t0]))].sort((a, b) => a - b);
+    const blocks = [];
+    for (let i = 0; i < marks.length; i++) blocks.push({ start: marks[i], end: i + 1 < marks.length ? marks[i + 1] : t1 });
+    return blocks;
+  }
+
+  /** The scheduling day an absolute minute falls in. */
+  function schedulingDayOf(state, abs) {
+    const startMin = schedulingDayStart(state, Math.floor(abs / DAY));
+    return Math.floor((abs - startMin) / DAY);
+  }
+
   // ------------------------------------------------------------------ demo
   function demoState(today = todayNum()) {
     const rnd = mulberry32(9110);
@@ -1307,6 +1398,7 @@
   const api = {
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
     jobClasses, jobClassOf, jobClassById, classMembers, classConsoles, empClass, lineClass, bidClass, certifications,
+    schedulingDayStart, shiftBlocks, schedulingDayOf,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,

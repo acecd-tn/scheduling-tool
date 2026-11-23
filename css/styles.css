@@ -220,3 +220,12 @@ body.auth .nav { display: none; }
 .mini-cal .out { opacity: .25; }
 .months { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .console-block { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+
+/* consoles page: shifts with sub-blocks */
+.shift-block .sub-block { border-left: 3px solid var(--border); padding-left: 10px; margin-top: 8px; }
+.shift-block .sub-block h3 { margin: 4px 0; }
+.shift-block details.pins { margin-top: 10px; }
+.shift-block details.pins summary { cursor: pointer; color: var(--accent-2); font-weight: 600; }
+.heat tr.shift-edge td { border-top: 2px solid var(--muted); }
+.strip .now { outline: 2px solid var(--accent); outline-offset: -2px; }
+.strip .edge { box-shadow: inset 2px 0 0 var(--muted); }
