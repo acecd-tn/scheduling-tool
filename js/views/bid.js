@@ -58,8 +58,28 @@
       <td><input type="date" value="${esc(l.anchorDate || l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="anchorDate"></td>
       ${kind === 'line' ? `<td><input type="date" value="${esc(l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="effectiveFrom"></td>
       <td><input type="date" value="${esc(l.effectiveTo || '')}" data-change="${ch}" data-id="${l.id}" data-f="effectiveTo"></td><td>${empSel}</td>` : ''}
-      <td class="num">${hrs(wk)}</td>
+      <td class="num">${hrs(wk)}${otBadge(st, l)}</td>
       <td><button class="btn sm danger" data-action="${kind === 'line' ? 'line-del' : 'bidline-del'}" data-id="${l.id}" title="Delete line">✕</button></td></tr>`;
+  }
+
+  /** Flag lines whose pattern goes over the OT threshold under the center's rule. */
+  const otCache = {};
+  function otBadge(st, l) {
+    const c = st.center;
+    const k = [l.shiftTemplateId, l.patternId, l.anchorDate, c.otPeriodDays, c.otThresholdHours, c.otPeriodStart, JSON.stringify((st.patterns.find((p) => p.id === l.patternId) || {}).cycle)].join('|');
+    if (!(k in otCache)) {
+      const pat = st.patterns.find((p) => p.id === l.patternId);
+      if (!pat) return '';
+      // This line's actual alignment: run one year from its anchor.
+      const t0 = P.periodOf(st, P.todayNum()).start;
+      const temp = Object.assign({}, st, {
+        employees: [{ id: 'x', lastName: 'x', firstName: '', positionId: l.positionId, status: 'active', hourlyRate: 1 }],
+        lines: [Object.assign({}, l, { employeeId: 'x', effectiveFrom: P.fmtDate(t0 - 60), effectiveTo: null })], exceptions: [], fills: [],
+      });
+      otCache[k] = P.otReport(temp, t0, t0 + 363).totals.hours;
+    }
+    const h = otCache[k];
+    return h > 0.01 ? ` <span class="badge bad" title="This line is scheduled over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day periods">+${hrs(h)} OT h/yr</span>` : '';
   }
 
   App.actions['bid-tab'] = (el) => { App.ui.bid.tab = el.dataset.tab; App.render(); };
@@ -91,7 +111,7 @@
         <div class="field"><label>Rotation anchor</label><input type="date" name="anchorDate" value="${anchor}"></div>
         <div class="field"><label>Name prefix</label><input name="prefix" placeholder="e.g. D12"></div>
       </div>
-      <p class="small muted">Teams spread start dates evenly across the pattern. Examples: Pitman 12s → 2 teams per shift (A/B, offset 7 days). 5-on/2-off → 7 teams to stagger days off. 4-on/4-off → 2 teams.</p>`,
+      <p class="small muted">Teams spread start dates evenly across the pattern. Examples: 5 x 8 → 7 teams staggers days off so the same number work every day. 4 x 10 → 7 teams (or fewer for peak-only coverage). 2 x 12 + 2 x 8 → 7 teams.</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="line-gen-go" data-target="' + target + '">Create</button>',
     });
   };
@@ -153,7 +173,7 @@
       const by = byLine[l.id];
       const pat = st.patterns.find((p) => p.id === l.patternId);
       return `<tr class="${by ? 'dim' : ''}"><td>${esc(l.name)}</td><td>${t ? `${esc(t.code)} ${t.start.replace(':', '')}` : '?'}</td><td class="small">${esc(pat ? pat.name : '')}</td><td>${esc(l.anchorDate)}</td>
-        <td>${pat ? daysOffText(pat, l, eff) : ''}</td>
+        <td>${pat ? daysOffText(pat, l, eff) : ''}${otBadge(st, l)}</td>
         <td>${by ? esc(P.empName(App.emp(by))) : cur ? `<button class="btn sm primary" data-action="bid-pick" data-line="${l.id}">Pick for ${esc(cur.lastName)}</button>` : '<span class="muted">open</span>'}</td>
         ${editable ? `<td><button class="btn sm danger" data-action="bidline-del" data-id="${l.id}">✕</button></td>` : '<td></td>'}</tr>`;
     }).join('');

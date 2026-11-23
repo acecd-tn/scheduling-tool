@@ -7,33 +7,12 @@
     rows: [
       { tpl: 't_d8', pat: 'p_52' },
       { tpl: 't_p10', pat: 'p_410' },
-      { tpl: 't_d12', pat: 'p_pitman' },
-      { tpl: 't_d12', pat: 'p_dupont' },
+      { tpl: 't_d12', pat: 'p_12d8' },
+      { tpl: 't_d12', pat: 'p_3x12' },
     ],
   };
 
-  /**
-   * Built-in OT hours/yr one employee would earn on this pattern under the
-   * current OT rules — best and worst case over every way the rotation can
-   * line up with the OT period.
-   */
-  function builtInOT(st, tplId, patId) {
-    const t0 = P.periodOf(st, P.todayNum()).start;
-    const pat = st.patterns.find((p) => p.id === patId);
-    const L = pat ? pat.cycle.length : 7;
-    let min = Infinity, max = 0, best = 0;
-    for (let off = 0; off < L; off++) {
-      const temp = Object.assign({}, st, {
-        employees: [{ id: 'x', firstName: '', lastName: 'x', positionId: st.positions[0].id, status: 'active', hourlyRate: 1 }],
-        lines: [{ id: 'l', employeeId: 'x', shiftTemplateId: tplId, patternId: patId, anchorDate: P.fmtDate(t0 + off), effectiveFrom: P.fmtDate(t0 - L), positionId: st.positions[0].id }],
-        exceptions: [], fills: [],
-      });
-      const h = P.otReport(temp, t0, t0 + 363).totals.hours * 365 / 364;
-      if (h < min) { min = h; best = off; }
-      if (h > max) max = h;
-    }
-    return { min, max, bestDow: P.DOW[P.dow(t0 + best)] };
-  }
+  function builtInOT(st, tplId, patId) { return P.patternBuiltInOT(st, tplId, patId); }
 
   App.views.planner = {
     render(st, ui) {
@@ -81,7 +60,7 @@
       <div class="section small muted">
         <p><b>Relief factor</b> = hours in a year (8,760) ÷ net available hours per employee: how many people it takes to staff one seat 24/7.</p>
         <p><b>FTE needed</b> = minimum person-hours per year ÷ net available hours per employee. It assumes coverage can be perfectly distributed, so treat it as a floor — use the bid tool's coverage preview to check actual line placement.</p>
-        <p><b>Built-in OT</b> applies your current OT rule (${st.center.otThresholdHours} h per ${st.center.otPeriodDays} days) to the pattern. 12-hour patterns average 42 h/wk, so the period you choose matters a great deal — and with short periods, so does which day the rotation starts relative to the work week (range shown = best–worst alignment; the cost column uses the best).</p>
+        <p><b>Built-in OT</b> applies your current OT rule (${st.center.otThresholdHours} h per ${st.center.otPeriodDays} days) to the pattern. Any pattern over 40 h in a work week builds in overtime for non-exempt staff. If it is over 40 h in only some weeks, which day the rotation starts matters (range shown = best–worst alignment; the cost column uses the best).</p>
       </div></div>`;
     },
   };

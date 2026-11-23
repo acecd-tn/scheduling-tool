@@ -8,7 +8,7 @@ and 12-hour schedules, or a mix of them.
 ## Running it
 
 No install or server needed. Open `index.html` in Chrome, Edge or Firefox.
-It starts with **demo data** (a fictional 28-seat center) so you can explore.
+It starts with **demo data** (a fictional center with call-taker, law, fire/EMS and supervisor minimums on 8-hour shifts) so you can explore.
 Go to **Settings → Data → Start empty** when you're ready to enter your own center.
 
 Data is saved in the browser's local storage on that computer. Use
@@ -29,7 +29,7 @@ Run the engine tests with `npm test` (Node 18+).
 | **Lines & Bid** | Lines = shift + rotation pattern + start date. Generate lines in teams, assign people, and run a **seniority shift bid** (pick, skip, reorder, auto-assign). The bid shows a live coverage preview and applies on an effective date, which is how you switch 8s → 12s (or any mix) while keeping history. |
 | **Staff** | Employees, positions, authorized strength, trainee/CTO status (non-solo trainees don't count toward minimums), cross-training, and an estimate of what vacancies cost if backfilled with OT. |
 | **Planner** | Relief factor and FTE needed per schedule type against your minimums. Shows built-in OT per pattern under your OT rule, including how much it changes with rotation/work-week alignment. |
-| **Settings** | OT rules (period length, threshold, multiplier, "extra shifts always OT", leave counts toward OT), fatigue rules, hour-by-day minimum grid per position, special-day minimums (holidays, NYE, storms), shift templates, rotation patterns (including rotating ones like DuPont), and backup/import. |
+| **Settings** | OT rules (period length, threshold, multiplier, "extra shifts always OT", leave counts toward OT), fatigue rules, hour-by-day minimum grid per position, special-day minimums (holidays, NYE, storms), shift templates, rotation patterns (including mixed 12/8 rotations), and backup/import. |
 
 ## How the numbers work
 

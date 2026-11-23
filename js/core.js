@@ -148,18 +148,23 @@
       { id: 't_m8', code: 'M8', name: 'Mids 8', start: '23:00', hours: 8, color: '#6366f1' },
       { id: 't_p8', code: 'P8', name: 'Power 8 (peak)', start: '14:00', hours: 8, color: '#10b981' },
       { id: 't_p10', code: 'P10', name: 'Power 10 (peak)', start: '12:00', hours: 10, color: '#14b8a6' },
+      { id: 't_s4', code: 'S4', name: 'Short 4 (peak)', start: '10:00', hours: 4, color: '#64748b' },
     ];
   }
 
+  /**
+   * Default library: every pattern is exactly 40 hours in ANY 7-day window, so
+   * none of them builds in overtime for a non-exempt 7-day/40-hour work week.
+   * Tokens: 1 = the line's own shift, 0 = off, template id = that shift.
+   */
   function defaultPatterns() {
-    const N = 't_n12', D = 't_d12';
+    const D12 = 't_d12', N12 = 't_n12', D8 = 't_d8', M8 = 't_m8', S4 = 't_s4';
     return [
-      { id: 'p_pitman', name: 'Pitman 2-2-3 (14-day)', cycle: [1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0] },
-      { id: 'p_52', name: '5 on / 2 off (7-day)', cycle: [1, 1, 1, 1, 1, 0, 0] },
-      { id: 'p_410', name: '4 on / 3 off (4x10)', cycle: [1, 1, 1, 1, 0, 0, 0] },
-      { id: 'p_44', name: '4 on / 4 off (8-day)', cycle: [1, 1, 1, 1, 0, 0, 0, 0] },
-      { id: 'p_223', name: '2-3-2 Panama (14-day)', cycle: [1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0] },
-      { id: 'p_dupont', name: 'DuPont rotating (28-day, D/N)', cycle: [N, N, N, N, 0, 0, 0, D, D, D, 0, N, N, N, 0, 0, 0, D, D, D, D, 0, 0, 0, 0, 0, 0, 0] },
+      { id: 'p_52', name: '5 x 8 (5 on / 2 off)', cycle: [1, 1, 1, 1, 1, 0, 0] },
+      { id: 'p_410', name: '4 x 10 (4 on / 3 off)', cycle: [1, 1, 1, 1, 0, 0, 0] },
+      { id: 'p_12d8', name: '2 x 12 + 2 x 8 — days (D12 D12 D8 D8)', cycle: [D12, D12, 0, D8, D8, 0, 0] },
+      { id: 'p_12n8', name: '2 x 12 + 2 x 8 — nights (N12 N12 M8 M8)', cycle: [N12, N12, 0, 0, M8, M8, 0] },
+      { id: 'p_3x12', name: '3 x 12 + 1 x 4 (three 12s plus a 4-hr peak)', cycle: [1, 1, 1, 0, S4, 0, 0] },
     ];
   }
 
@@ -527,6 +532,31 @@
     return pattern.cycle.length ? (mins / 60) * 7 / pattern.cycle.length : 0;
   }
 
+  /**
+   * Built-in OT hours/yr one employee earns on a line of this pattern under the
+   * center's OT rule, best and worst case over every alignment of the rotation
+   * with the OT period. min === 0 means the pattern can run OT-free.
+   */
+  function patternBuiltInOT(state, templateId, patternId, today = todayNum()) {
+    const pat = state.patterns.find((p) => p.id === patternId);
+    if (!pat || !pat.cycle.length) return { min: 0, max: 0, bestOffset: 0 };
+    const t0 = periodOf(state, today).start;
+    const L = pat.cycle.length;
+    let min = Infinity, max = 0, bestOffset = 0;
+    const posId = (state.positions[0] || {}).id;
+    for (let off = 0; off < L; off++) {
+      const temp = Object.assign({}, state, {
+        employees: [{ id: 'x', firstName: '', lastName: 'x', positionId: posId, status: 'active', hourlyRate: 1 }],
+        lines: [{ id: 'l', employeeId: 'x', shiftTemplateId: templateId, patternId, anchorDate: fmtDate(t0 + off), effectiveFrom: fmtDate(t0 - L), positionId: posId }],
+        exceptions: [], fills: [],
+      });
+      const h = otReport(temp, t0, t0 + 363).totals.hours * 365 / 364;
+      if (h < min - 1e-9) { min = h; bestOffset = off; }
+      if (h > max) max = h;
+    }
+    return { min, max, bestOffset, bestDow: DOW[dow(t0 + bestOffset)] };
+  }
+
   /** Average leave hours per countable employee over the last 365 days. */
   function actualLeavePerEmployee(state, today = todayNum()) {
     const wi = workIntervals(state, today - 364, today);
@@ -716,66 +746,81 @@
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { otPeriodDays: 14, otThresholdHours: 80, annualOtBudget: 175000 });
+    Object.assign(s.center, { annualOtBudget: 90000 });
+    // Minimums are set per discipline.
     s.positions = [
-      { id: 'pos_tc', name: 'Telecommunicator', authorized: 28, isConsole: true },
-      { id: 'pos_sup', name: 'Shift Supervisor', authorized: 5, isConsole: false },
+      { id: 'pos_ct', name: 'Call-taker', authorized: 18, isConsole: true },
+      { id: 'pos_law', name: 'Law dispatch', authorized: 13, isConsole: true },
+      { id: 'pos_fire', name: 'Fire/EMS dispatch', authorized: 9, isConsole: true },
+      { id: 'pos_sup', name: 'Shift Supervisor', authorized: 6, isConsole: false },
     ];
-    // Console minimums: 4 overnight, 5 midday, 6 at the evening peak, 6 late Fri/Sat.
-    const tc = [];
-    for (let d = 0; d < 7; d++) {
-      const row = [];
-      for (let h = 0; h < 24; h++) {
-        let v = 4;
-        if (h >= 10 && h < 14) v = 5;
-        if (h >= 14 && h < 22) v = 6;
-        if (h >= 22) v = (d === 5 || d === 6) ? 6 : 5;
-        row.push(v);
-      }
-      tc.push(row);
-    }
-    s.minimums = { pos_tc: tc, pos_sup: Array.from({ length: 7 }, () => new Array(24).fill(1)) };
+    const grid = (fn) => Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => fn(d, h)));
+    const weekendNight = (d, h) => (d === 5 || d === 6) && h >= 22;
+    s.minimums = {
+      pos_ct: grid((d, h) => (h >= 14 && h < 22) || weekendNight(d, h) ? 4 : (h >= 10 && h < 14) || h >= 22 ? 3 : 2),
+      pos_law: grid(() => 2),
+      pos_fire: grid((d, h) => (h >= 7 && h < 23 ? 2 : 1)),
+      pos_sup: grid(() => 1),
+    };
 
-    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly'];
-    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert'];
+    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly', 'Iris', 'Jack', 'Leah', 'Miles', 'Nora', 'Omar', 'Paige', 'Reid', 'Sofia', 'Troy', 'Wade', 'Abby'];
+    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert', 'Bishop', 'Cole', 'Dunn', 'Fields', 'Greer', 'Hale', 'Ingram', 'Jordan', 'Kemp', 'Lyons', 'Mercer', 'Noble'];
     let n = 0;
-    const mk = (positionId, status, sen, rate, extra = {}) => {
+    const mk = (positionId, extra = {}) => {
+      const year = Math.min(2025, 1998 + Math.floor((n * 37) % 28));
+      const sen = `${year}-${pad(1 + (n * 5) % 12)}-${pad(1 + (n * 7) % 27)}`;
+      const base = positionId === 'pos_sup' ? 30 : positionId === 'pos_ct' ? 18.5 : 20;
       const e = Object.assign({
-        id: uid('emp'), firstName: first[n], lastName: last[n], badge: String(1001 + n), positionId, status,
-        hireDate: sen, seniorityDate: sen, hourlyRate: rate, soloCleared: status === 'active', qualifications: [],
-        phone: `865-555-${String(1000 + n * 37).slice(-4)}`, notes: '',
+        id: uid('emp'), firstName: first[n % first.length], lastName: last[n % last.length], badge: String(1001 + n), positionId, status: 'active',
+        hireDate: sen, seniorityDate: sen, hourlyRate: round2(base + Math.min(2026 - year, 20) * 0.55), soloCleared: true, qualifications: [],
+        phone: `555-01${pad(n % 100)}`, notes: '',
       }, extra);
       n++;
       s.employees.push(e);
       return e;
     };
-    const tcs = [];
-    for (let i = 0; i < 24; i++) {
-      const year = 1999 + Math.floor(i * 26 / 24);
-      const sen = `${Math.min(year, 2025)}-${pad(1 + (i * 5) % 12)}-${pad(1 + (i * 7) % 27)}`;
-      const yrs = 2026 - Math.min(year, 2025);
-      tcs.push(mk('pos_tc', 'active', sen, round2(19.5 + Math.min(yrs, 20) * 0.55)));
-    }
-    // Two trainees: one cleared for solo console work, one still with a CTO.
-    Object.assign(tcs[3], { status: 'trainee', soloCleared: false, hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 19.5 });
-    Object.assign(tcs[12], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 19.5 });
-    const sups = [];
-    for (let i = 0; i < 4; i++) sups.push(mk('pos_sup', 'active', `${2004 + i * 3}-0${2 + i}-15`, round2(31 + (3 - i) * 1.4), { qualifications: ['pos_tc'] }));
 
     const anchor = parseDate('2026-01-04');
-    const addLine = (emp, tplId, patId, offset, name) => s.lines.push({
-      id: uid('ln'), name, positionId: emp.positionId, shiftTemplateId: tplId, patternId: patId,
-      anchorDate: fmtDate(anchor + offset), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: emp.id,
+    const line = (positionId, tplId, patId, offset, name, emp) => s.lines.push({
+      id: uid('ln'), name, positionId, shiftTemplateId: tplId, patternId: patId,
+      anchorDate: fmtDate(anchor + offset), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: emp ? emp.id : null,
     });
-    const teams = [['A', 't_d12', 0], ['B', 't_d12', 7], ['C', 't_n12', 0], ['D', 't_n12', 7]];
-    for (let i = 0; i < 20; i++) {
-      const [L, tpl, off] = teams[Math.floor(i / 5)];
-      addLine(tcs[i], tpl, 'p_pitman', off, `${tpl === 't_d12' ? 'D12' : 'N12'} ${L}-${(i % 5) + 1}`);
+    const shiftCode = { t_d8: 'D', t_e8: 'E', t_m8: 'M', t_p10: 'P10' };
+    // [position, prefix, template, pattern, offsets (staggered days off), qualifications]
+    const plan = [
+      ['pos_ct', 'CT', 't_d8', 'p_52', [0, 2, 4, 5], []],
+      ['pos_ct', 'CT', 't_e8', 'p_52', [0, 1, 2, 4, 5], []],
+      ['pos_ct', 'CT', 't_m8', 'p_52', [0, 2, 4], []],
+      ['pos_ct', 'CT', 't_p10', 'p_410', [0, 2, 4], []],
+      ['pos_law', 'LAW', 't_d8', 'p_52', [0, 2, 4, 5], ['pos_ct']],
+      ['pos_law', 'LAW', 't_e8', 'p_52', [0, 2, 4, 5], ['pos_ct']],
+      ['pos_law', 'LAW', 't_m8', 'p_52', [0, 2, 4], ['pos_ct']],
+      ['pos_fire', 'FIRE', 't_d8', 'p_52', [0, 2, 4], ['pos_ct']],
+      ['pos_fire', 'FIRE', 't_e8', 'p_52', [0, 2, 4], ['pos_ct']],
+      ['pos_fire', 'FIRE', 't_m8', 'p_52', [0, 2], ['pos_ct']],
+      ['pos_sup', 'SUP', 't_d8', 'p_52', [0, 2], ['pos_ct', 'pos_law', 'pos_fire']],
+      ['pos_sup', 'SUP', 't_e8', 'p_52', [0, 2], ['pos_ct', 'pos_law', 'pos_fire']],
+      ['pos_sup', 'SUP', 't_m8', 'p_52', [0], ['pos_ct', 'pos_law', 'pos_fire']],
+    ];
+    const byPos = { pos_ct: [], pos_law: [], pos_fire: [], pos_sup: [] };
+    for (const [pos, pre, tpl, pat, offs, quals] of plan) {
+      offs.forEach((off, k) => {
+        const e = mk(pos, { qualifications: quals.slice() });
+        byPos[pos].push(e);
+        line(pos, tpl, pat, off, `${pre} ${shiftCode[tpl]}-${k + 1}`, e);
+      });
     }
-    [0, 1, 3, 5].forEach((off, i) => addLine(tcs[20 + i], 't_p8', 'p_52', off, `P8 ${i + 1}`));
-    sups.forEach((e, i) => { const [L, tpl, off] = teams[i]; addLine(e, tpl, 'p_pitman', off, `SUP ${L}`); });
-    // One vacant line on the books (authorized but unfilled).
-    s.lines.push({ id: uid('ln'), name: 'N12 D-6', positionId: 'pos_tc', shiftTemplateId: 't_n12', patternId: 'p_pitman', anchorDate: fmtDate(anchor + 7), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: null });
+    const ct = byPos.pos_ct, law = byPos.pos_law, fire = byPos.pos_fire, sups = byPos.pos_sup;
+    // Senior call-takers cross-trained on law; a couple of law dispatchers on fire.
+    ct[4].qualifications.push('pos_law'); ct[9].qualifications.push('pos_law');
+    law[2].qualifications.push('pos_fire'); law[7].qualifications.push('pos_fire');
+    // Trainees: one call-taker still with a CTO (doesn't count), one law dispatcher solo-cleared.
+    Object.assign(ct[1], { status: 'trainee', soloCleared: false, hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
+    Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
+    // Vacant lines on the books (authorized but unfilled).
+    line('pos_ct', 't_d8', 'p_52', 3, 'CT D-5', null);
+    line('pos_sup', 't_m8', 'p_52', 2, 'SUP M-2', null);
+    const tcs = ct.concat(law, fire);
 
     const ix = index(s);
     const workDays = (emp, from, to) => regularShifts(s, from, to, ix).filter((r) => r.employeeId === emp.id).map((r) => r.day);
@@ -805,7 +850,7 @@
     const fyStart = fiscalYear(s, today).start;
     const everyone = tcs.concat(sups).filter((e) => countable(e));
     for (let d = Math.min(fyStart, today - 140); d < today; d++) {
-      if (rnd() < 0.5) {
+      if (rnd() < 0.7) {
         const working = everyone.filter((e) => workDays(e, d, d).length);
         const e = working[Math.floor(rnd() * working.length)];
         if (e) fillFor(ex(e, d, rnd() < 0.8 ? 'sick' : 'family', 'approved'), 0.2);
@@ -820,18 +865,18 @@
       }
     }
     // Current and upcoming items.
-    const dayWorkers = tcs.filter((e) => countable(e) && workDays(e, today, today).length);
+    const dayWorkers = law.filter((e) => countable(e) && workDays(e, today, today).length);
     if (dayWorkers[0]) ex(dayWorkers[0], today, 'sick', 'approved', { note: 'Called out 0430' });
-    const fm = ex(tcs[7], today - 3, 'family', 'approved', { endDate: fmtDate(today + 10), note: 'FMLA — intermittent block' });
-    for (const d of workDays(tcs[7], today - 3, today - 1)) fillFor({ ...fm, date: fmtDate(d), endDate: null }, 0.3);
-    const v1 = nextWork(tcs[16], today + 2);
-    if (v1 != null) ex(tcs[16], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
-    const t1 = nextWork(tcs[21], today + 5);
-    if (t1 != null) ex(tcs[21], t1, 'training', 'approved', { start: '14:00', hours: 4, note: 'CTO refresher class' });
-    const p1 = nextWork(tcs[1], today + 6);
-    if (p1 != null) ex(tcs[1], p1, 'vacation', 'pending', { endDate: fmtDate(p1 + 1), note: 'Family trip' });
-    const p2 = nextWork(tcs[11], today + 9);
-    if (p2 != null) ex(tcs[11], p2, 'comp', 'pending');
+    const fm = ex(fire[1], today - 3, 'family', 'approved', { endDate: fmtDate(today + 10), note: 'FMLA — intermittent block' });
+    for (const d of workDays(fire[1], today - 3, today - 1)) fillFor({ ...fm, date: fmtDate(d), endDate: null }, 0.3);
+    const v1 = nextWork(ct[6], today + 2);
+    if (v1 != null) ex(ct[6], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
+    const t1 = nextWork(ct[12], today + 5);
+    if (t1 != null) ex(ct[12], t1, 'training', 'approved', { start: '14:00', hours: 4, note: 'CTO refresher class' });
+    const p1 = nextWork(law[3], today + 6);
+    if (p1 != null) ex(law[3], p1, 'vacation', 'pending', { endDate: fmtDate(p1 + 1), note: 'Family trip' });
+    const p2 = nextWork(ct[10], today + 9);
+    if (p2 != null) ex(ct[10], p2, 'comp', 'pending');
     const p3 = nextWork(sups[1], today + 12);
     if (p3 != null) ex(sups[1], p3, 'vacation', 'pending');
     const v2 = nextWork(sups[2], today + 4);
@@ -850,7 +895,7 @@
     lineActiveOn, lineShiftOn, regularShifts, workIntervals, exceptionRange,
     requiredFor, coverage, openings, slotReason,
     periodOf, fiscalYear, empHours, otCalc, otReport, otForecast, avgRate, slotCost,
-    staffingSummary, requiredWeeklyHours, patternWeeklyHours, actualLeavePerEmployee,
+    staffingSummary, requiredWeeklyHours, patternWeeklyHours, patternBuiltInOT, actualLeavePerEmployee,
     fillCandidates, requestImpact,
     generateLines, bidOrder, currentBidder, applyBid, previewLines,
     demoState,

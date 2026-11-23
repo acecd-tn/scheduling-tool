@@ -10,6 +10,8 @@ function tiny({ min = 1, otPeriodDays = 7, otThresholdHours = 40, extraShiftsAlw
   const s = P.emptyState();
   Object.assign(s.center, { otPeriodDays, otThresholdHours, otPeriodStart: '2026-01-04', extraShiftsAlwaysOT, minRestHours: 8, maxShiftHours: 16 });
   s.positions = [{ id: 'tc', name: 'TC', authorized: 3 }];
+  // A 42-hour pattern, kept here only to test built-in OT detection.
+  s.patterns.push({ id: 'p_pitman', name: 'Pitman', cycle: [1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0] });
   const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
   for (const row of grid) for (let h = 6; h < 18; h++) row[h] = min;
   s.minimums = { tc: grid };
@@ -156,21 +158,31 @@ test('applying a bid ends old lines and starts new ones on the effective date', 
   assert.ok(before.every((r) => r.templateId === 't_d12'));
 });
 
-test('rotating patterns can switch shifts within the cycle (DuPont)', () => {
+test('mixed 12/8 pattern switches shifts within the cycle and stays at 40 h every week', () => {
   const s = tiny();
-  s.lines = [{ id: 'R', name: 'R', positionId: 'tc', shiftTemplateId: 't_d12', patternId: 'p_dupont', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: 'a' }];
-  const regs = P.regularShifts(s, D('2026-01-04'), D('2026-01-31'));
-  assert.equal(regs.length, 14);
-  assert.equal(regs[0].templateId, 't_n12');
-  assert.ok(regs.some((r) => r.templateId === 't_d12'));
+  s.lines = [{ id: 'R', name: 'R', positionId: 'tc', shiftTemplateId: 't_d12', patternId: 'p_12d8', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: 'a' }];
+  const regs = P.regularShifts(s, D('2026-01-04'), D('2026-01-10'));
+  assert.deepEqual(regs.map((r) => r.templateId), ['t_d12', 't_d12', 't_d8', 't_d8']);
+});
+
+test('every default pattern is OT-free under a 7-day/40-hour rule, at any alignment', () => {
+  const s = tiny();
+  const tplFor = { p_52: 't_d8', p_410: 't_p10', p_12d8: 't_d12', p_12n8: 't_n12', p_3x12: 't_d12' };
+  for (const [pat, tpl] of Object.entries(tplFor)) {
+    const r = P.patternBuiltInOT(s, tpl, pat, D('2026-01-04'));
+    assert.equal(r.max, 0, pat);
+  }
+  // ...and a 12-hour line on 5-on/2-off is flagged.
+  assert.ok(P.patternBuiltInOT(s, 't_d12', 'p_52', D('2026-01-04')).min > 0);
 });
 
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);
   const sum = P.staffingSummary(s);
-  assert.equal(sum[0].authorized, 28);
-  assert.equal(sum[0].vacancies, 4);
+  assert.deepEqual(sum.map((r) => r.position.name), ['Call-taker', 'Law dispatch', 'Fire/EMS dispatch', 'Shift Supervisor']);
+  assert.equal(sum[0].vacancies, 3);
   const fc = P.otForecast(s, today);
   assert.ok(fc.ytd > 0 && fc.projection >= fc.ytd);
+  assert.ok(!fc.full.totals.byReason['built-in'], 'demo rotation should build in no OT');
 });

@@ -18,7 +18,7 @@
       const nowCards = S.positions.map((p) => {
         const st = cov.staffed[p.id][hourIdx], rq = cov.required[p.id][hourIdx];
         const cls = App.covClass(st, rq);
-        return App.kpi(`${p.name}s on now`, `${App.fmtStaff(st)} <span class="muted small">/ ${rq} min</span>`,
+        return App.kpi(`${p.name} — on now`, `${App.fmtStaff(st)} <span class="muted small">/ ${rq} min</span>`,
           cls === 'short' ? `<span class="badge bad">SHORT ${Math.ceil(rq - st)}</span>` : cls === 'exact' ? '<span class="badge warn">At minimum</span>' : '<span class="badge ok">Covered</span>',
           cls === 'short' ? 'bad' : cls === 'exact' ? 'warn' : 'ok');
       }).join('');
