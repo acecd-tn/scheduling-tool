@@ -267,32 +267,42 @@ live outside `C:\PSAP\app`, so an update is a folder swap. The old folder is kep
 
 1. **Download** the new version on the server: on GitHub, open the repository,
    choose the branch, then **Code → Download ZIP**. It lands in your Downloads folder.
-2. **Back up, stop, swap and reinstall** in an admin PowerShell. Set `$zip` to the
-   file you downloaded:
+2. **Unpack, back up, swap and reinstall** in an admin PowerShell. Set `$zip` to the
+   full path of the file you downloaded. The script stops at the first error, checks
+   the new version *before* stopping the app (so it's only down for a few seconds),
+   and puts the old folder back if the swap fails:
    ```powershell
-   $zip = "$env:USERPROFILE\Downloads\scheduling-tool-main.zip"   # <- your file name
+   $zip = "$env:USERPROFILE\Downloads\scheduling-tool-main.zip"   # <- your file
+   $ErrorActionPreference = 'Stop'
    cd C:\
+   if (-not (Test-Path $zip)) { throw "ZIP not found: $zip" }
 
-   # Back up first
+   # Unpack and check the new version first (the app keeps running)
+   Unblock-File $zip
+   Remove-Item C:\PSAP\app-new -Recurse -Force -ErrorAction SilentlyContinue
+   Expand-Archive $zip -DestinationPath C:\PSAP\app-new
+   $new = (Get-ChildItem C:\PSAP\app-new -Directory | Select-Object -First 1).FullName
+   if (-not (Test-Path "$new\server\server.js")) { throw "That ZIP doesn't look like PSAP Scheduler: no server\server.js inside" }
+
+   # Back up
    Start-ScheduledTask -TaskName "PSAPScheduler Backup"; Start-Sleep 15
-   Get-Content C:\PSAP\logs\backup.log -Tail 2       # expect "Backup OK"
+   Get-Content C:\PSAP\logs\backup.log -Tail 1
 
-   # Stop the app (startup task; with NSSM use: Stop-Service PSAPScheduler)
+   # Stop the app and swap folders (startup task; with NSSM use: Stop-Service PSAPScheduler)
    Stop-ScheduledTask -TaskName PSAPScheduler -ErrorAction SilentlyContinue
    Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" | Where-Object { $_.CommandLine -like '*server\server.js*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
-
-   # Swap folders, keeping the old one
-   Unblock-File $zip
    Remove-Item C:\PSAP\app-old -Recurse -Force -ErrorAction SilentlyContinue
    Rename-Item C:\PSAP\app app-old
-   Expand-Archive $zip -DestinationPath C:\PSAP\app-new -Force
-   Move-Item (Get-ChildItem C:\PSAP\app-new -Directory | Select-Object -First 1).FullName C:\PSAP\app
+   try { Move-Item $new C:\PSAP\app }
+   catch { Rename-Item C:\PSAP\app-old app; Start-ScheduledTask -TaskName PSAPScheduler; throw }
    Remove-Item C:\PSAP\app-new -Recurse -Force
 
    # Re-run the installer: keeps your settings, refreshes the tasks, starts the app
    cd C:\PSAP\app
    powershell -ExecutionPolicy Bypass -File .\scripts\windows\install.ps1 -BehindIIS
    ```
+   Not sure where the ZIP went? `Get-ChildItem C:\Users\*\Downloads -Filter *.zip`
+   lists downloaded ZIPs. Browsers add ` (1)` to repeat downloads.
 3. Sign in and check. Any data upgrades happen automatically when the app starts.
 
 If `Rename-Item` says the folder is in use, close any Explorer windows or PowerShell
