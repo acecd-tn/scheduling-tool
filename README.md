@@ -65,6 +65,12 @@ and after. That matters for grievances and payroll disputes.
 
 ## Features
 
+- **Job classes and consoles.** A *job class* (e.g. Telecommunicator, Supervisor) holds
+  the budget: authorized full-time and part-time positions, vacancies, the daily leave
+  limit, and who bids together. A *console* (e.g. Law, Fire/EMS) holds the hourly
+  minimums and fill priority. One job class can staff several consoles; a person's
+  job class follows from their home console, and their certifications decide which
+  consoles they can sit.
 - **Coverage by discipline.** Minimum staffing per hour and day for each discipline
   (call-taker, law, fire/EMS, supervisor), with special-day overrides. With
   *console assignment* on, cross-trained people are placed on whatever console needs
@@ -75,8 +81,8 @@ and after. That matters for grievances and payroll disputes.
   shifts are straight time; eligible part-timers are offered open shifts first
   (setting) and are never forced; the fill list blocks going over the cap. The
   Overtime page shows hours they covered and the OT that saved.
-- **Staffing levels.** Authorized vs. filled vs. vacant per discipline for full-time
-  positions, with part-time positions as a separate category (PT authorized, filled,
+- **Staffing levels.** Authorized vs. filled vs. vacant per job class for full-time
+  positions, with part-time positions as a separate count (PT authorized, filled,
   FTE), trainee/CTO
   status (trainees not yet solo-cleared don't count), and the OT cost of vacancies.
 - **Openings.** Every hour below minimum, its cause (call-out, vacation, FMLA,

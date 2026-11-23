@@ -326,7 +326,13 @@
   // ------------------------------------------------------- vacation bid
   function vacOrder(state, vb) {
     const sen = (e) => P.parseDate(e.seniorityDate || e.hireDate || '2000-01-01');
-    let list = state.employees.filter((e) => e.status !== 'inactive' && (!vb.positionIds || !vb.positionIds.length || vb.positionIds.includes(e.positionId)));
+    const classIds = vb.jobClassIds || [];
+    let list = state.employees.filter((e) => {
+      if (e.status === 'inactive') return false;
+      if (!classIds.length) return true;
+      const jc = P.jobClassOf(state, e.positionId);
+      return !!jc && classIds.includes(jc.id);
+    });
     list.sort((a, b) => sen(a) - sen(b) || String(a.lastName).localeCompare(b.lastName));
     if (Array.isArray(vb.order) && vb.order.length) {
       const pos = {}; vb.order.forEach((id, i) => { pos[id] = i; });
@@ -346,10 +352,12 @@
   /** Days in [from,to] where a discipline is already at its cap. */
   function vacConflicts(state, vb, empId, from, to) {
     const emp = empOf(state, empId);
-    const cap = vb.caps && vb.caps[emp.positionId] != null && vb.caps[emp.positionId] !== '' ? +vb.caps[emp.positionId] : Infinity;
+    const jc = P.jobClassOf(state, emp.positionId);
+    const key = jc ? jc.id : emp.positionId;
+    const cap = vb.caps && vb.caps[key] != null && vb.caps[key] !== '' ? +vb.caps[key] : Infinity;
     const full = [];
     for (let d = from; d <= to; d++) {
-      const who = P.plannedLeaveOn(state, d, emp.positionId);
+      const who = P.plannedLeaveOn(state, d, key);
       who.delete(empId);
       if (who.size >= cap) full.push(P.fmtDate(d));
     }
@@ -371,7 +379,7 @@
       if (vb.pickUnit !== 'calendar' && scheduled > +vb.maxDaysPerPick) fail(`At most ${vb.maxDaysPerPick} scheduled workdays per pick (that range has ${scheduled})`);
     }
     const full = vacConflicts(state, vb, empId, from, to);
-    if (full.length) fail(`Already at the limit for your discipline on ${full.join(', ')}`);
+    if (full.length) fail(`Already at the daily limit for your job class on ${full.join(', ')}`);
     const ex = { id: P.uid('ex'), employeeId: empId, date: P.fmtDate(from), endDate: to > from ? P.fmtDate(to) : null, start: null, hours: null, type: 'vacation', status: 'approved', note: `${vb.name} — round ${turn.round}`, vacationBidId: vb.id, createdAt: nowIso(ctx) };
     state.exceptions.push(ex);
     (vb.picks ||= []).push({ employeeId: empId, round: turn.round, from: ex.date, to: P.fmtDate(to), exceptionId: ex.id, at: nowIso(ctx), by: actor.userId || null });

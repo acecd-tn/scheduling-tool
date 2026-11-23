@@ -43,7 +43,7 @@
     { id: 'callback', label: 'Call-back' },
     { id: 'trade', label: 'Shift trade (straight time)' },
   ];
-  const COLLECTIONS = ['positions', 'shiftTemplates', 'patterns', 'employees', 'lines', 'exceptions', 'fills', 'bids',
+  const COLLECTIONS = ['positions', 'jobClasses', 'shiftTemplates', 'patterns', 'employees', 'lines', 'exceptions', 'fills', 'bids',
     'minimumOverrides', 'trades', 'postings', 'vacationBids', 'notifications', 'pins'];
 
   const STATUSES = [
@@ -152,6 +152,7 @@
       exceptions: [],
       fills: [],
       bids: [],
+      jobClasses: [],
       trades: [],
       postings: [],
       vacationBids: [],
@@ -208,6 +209,28 @@
       delete s.center.partTimeMandatory;                                          // part-timers are never forced
       s.center.schemaVersion = 2;
     }
+    // v3: authorized staffing moves from consoles (positions) to job classes. One class
+    // per console to start, carrying over its authorized counts and daily leave limit.
+    if ((+s.center.schemaVersion || 1) < 3) {
+      if (!s.jobClasses.length) {
+        for (const p of s.positions) {
+          const lim = s.center.maxOffPerDay ? s.center.maxOffPerDay[p.id] : null;
+          s.jobClasses.push({
+            id: 'jc_' + p.id, name: p.name, positionIds: [p.id],
+            authorized: +p.authorized || 0, authorizedPartTime: +p.authorizedPartTime || 0,
+            maxOffPerDay: lim == null || lim === '' ? null : +lim,
+          });
+        }
+      }
+      const posIds = new Set(s.positions.map((p) => p.id));
+      const toClass = (pid) => (posIds.has(pid) ? 'jc_' + pid : pid);
+      for (const vb of s.vacationBids) {
+        if (vb.positionIds && !vb.jobClassIds) vb.jobClassIds = [...new Set(vb.positionIds.map(toClass))];
+        if (vb.caps) { const c = {}; for (const [k, v] of Object.entries(vb.caps)) c[toClass(k)] = v; vb.caps = c; }
+        delete vb.positionIds;
+      }
+      s.center.schemaVersion = 3;
+    }
     s.version = 2;
     return s;
   }
@@ -218,6 +241,35 @@
       emp: by(state.employees), tpl: by(state.shiftTemplates), pat: by(state.patterns),
       pos: by(state.positions), line: by(state.lines), excType: by(EXCEPTION_TYPES),
     };
+  }
+
+  /**
+   * Job classes: the budget side (authorized positions, vacancies, leave limits, bid
+   * lists). Each owns one or more consoles (positions). A person's job class follows
+   * from their home console. A console in no class acts as its own class.
+   */
+  function jobClasses(state) {
+    const posIds = new Set(state.positions.map((p) => p.id));
+    const seen = new Set();
+    const out = [];
+    for (const c of state.jobClasses || []) {
+      const pids = (c.positionIds || []).filter((id) => posIds.has(id) && !seen.has(id));
+      pids.forEach((id) => seen.add(id));
+      out.push(Object.assign({}, c, { positionIds: pids }));
+    }
+    for (const p of state.positions) {
+      if (seen.has(p.id)) continue;
+      const lim = state.center.maxOffPerDay ? state.center.maxOffPerDay[p.id] : null;
+      out.push({ id: 'pos:' + p.id, name: p.name, positionIds: [p.id], authorized: +p.authorized || 0, authorizedPartTime: +p.authorizedPartTime || 0, maxOffPerDay: lim == null || lim === '' ? null : +lim, implicit: true });
+    }
+    return out;
+  }
+  function jobClassOf(state, positionId) {
+    return jobClasses(state).find((c) => c.positionIds.includes(positionId)) || null;
+  }
+  function jobClassById(state, id) { return jobClasses(state).find((c) => c.id === id) || null; }
+  function classMembers(state, jc, includeInactive) {
+    return jc ? state.employees.filter((e) => jc.positionIds.includes(e.positionId) && (includeInactive || e.status !== 'inactive')) : [];
   }
 
   const isPartTime = (e) => !!e && e.employmentType === 'part';
@@ -633,28 +685,34 @@
   }
 
   // ---------------------------------------------------------- staffing level
+  /** Authorized vs. actual staffing, by job class. */
   function staffingSummary(state) {
-    return state.positions.map((p) => {
-      const emps = state.employees.filter((e) => e.positionId === p.id && e.status !== 'inactive');
+    return jobClasses(state).map((jc) => {
+      const emps = classMembers(state, jc);
       const active = emps.filter((e) => e.status === 'active').length;
       const traineeSolo = emps.filter((e) => e.status === 'trainee' && e.soloCleared).length;
       const traineeNot = emps.filter((e) => e.status === 'trainee' && !e.soloCleared).length;
       const onLeave = emps.filter((e) => e.status === 'leave').length;
-      const authorized = +p.authorized || 0;
-      // Authorized strength is full-time positions; part-timers are shown separately.
+      const authorized = +jc.authorized || 0;
+      // Authorized strength is full-time positions; part-time positions are their own count.
       const full = emps.filter((e) => !isPartTime(e));
       const part = emps.filter((e) => isPartTime(e));
-      const partFTE = part.reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
+      const partFTE = part.reduce((s2, e) => s2 + partTimeCap(state, e) / 40, 0);
       const countableFull = full.filter(countable).length;
-      const countablePartFTE = part.filter(countable).reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
-      const authorizedPart = +p.authorizedPartTime || 0;
+      const countablePartFTE = part.filter(countable).reduce((s2, e) => s2 + partTimeCap(state, e) / 40, 0);
+      const authorizedPart = +jc.authorizedPartTime || 0;
+      const rates = emps.filter((e) => +e.hourlyRate > 0).map((e) => +e.hourlyRate);
       return {
-        position: p, authorized, current: emps.length, fullTime: full.length, partTime: part.length, partFTE,
+        jobClass: jc, position: { id: jc.id, name: jc.name }, positionIds: jc.positionIds,
+        authorized, current: emps.length, fullTime: full.length, partTime: part.length, partFTE,
         authorizedPart, partVacancies: Math.max(0, authorizedPart - part.length),
         active, traineeSolo, traineeNot, onLeave,
         countable: active + traineeSolo, countableFTE: countableFull + countablePartFTE,
         vacancies: Math.max(0, authorized - full.length),
         pct: authorized ? full.length / authorized : 0,
+        avgRate: rates.length ? rates.reduce((x, y) => x + y, 0) / rates.length : 0,
+        minRate: rates.length ? Math.min(...rates) : 0,
+        requiredWeeklyHours: jc.positionIds.reduce((t, pid) => t + requiredWeeklyHours(state, pid), 0),
       };
     });
   }
@@ -864,7 +922,8 @@
 
   function bidOrder(state, bid) {
     const sen = (e) => parseDate(e.seniorityDate || e.hireDate || '2000-01-01');
-    let list = state.employees.filter((e) => e.positionId === bid.positionId && e.status !== 'inactive');
+    // Everyone in the job class bids together (e.g. law and fire/EMS dispatchers).
+    let list = classMembers(state, jobClassOf(state, bid.positionId));
     list.sort((a, b) => sen(a) - sen(b) || String(a.lastName).localeCompare(b.lastName));
     if (Array.isArray(bid.order) && bid.order.length) {
       const pos = {}; bid.order.forEach((id, i) => { pos[id] = i; });
@@ -880,9 +939,11 @@
 
   function applyBid(state, bid) {
     const eff = parseDate(bid.effectiveDate);
-    state.lines = state.lines.filter((l) => !(l.positionId === bid.positionId && parseDate(l.effectiveFrom) >= eff));
+    const jc = jobClassOf(state, bid.positionId);
+    const inClass = (l) => (jc ? jc.positionIds.includes(l.positionId) : l.positionId === bid.positionId);
+    state.lines = state.lines.filter((l) => !(inClass(l) && parseDate(l.effectiveFrom) >= eff));
     for (const l of state.lines) {
-      if (l.positionId !== bid.positionId) continue;
+      if (!inClass(l)) continue;
       if (!l.effectiveTo || parseDate(l.effectiveTo) >= eff) l.effectiveTo = fmtDate(eff - 1);
     }
     const byLine = {};
@@ -899,10 +960,14 @@
    * other positions' current lines unchanged and no leave.
    */
   function previewLines(state, positionId, lines, fromDay, days) {
-    const synthEmps = lines.map((l, i) => ({ id: `__ln${i}`, firstName: '', lastName: l.name, positionId, status: 'active' }));
+    // The whole job class is replaced by one person per line, certified on all of the
+    // class's consoles (a cross-trained pool), so the preview shows what the lines can cover.
+    const jc = jobClassOf(state, positionId);
+    const pids = jc ? jc.positionIds : [positionId];
+    const synthEmps = lines.map((l, i) => ({ id: `__ln${i}`, firstName: '', lastName: l.name, positionId: l.positionId || positionId, qualifications: pids.slice(), status: 'active' }));
     const temp = Object.assign({}, state, {
-      employees: state.employees.filter((e) => e.positionId !== positionId).concat(synthEmps),
-      lines: state.lines.filter((l) => l.positionId !== positionId && l.employeeId)
+      employees: state.employees.filter((e) => !pids.includes(e.positionId)).concat(synthEmps),
+      lines: state.lines.filter((l) => !pids.includes(l.positionId) && l.employeeId)
         .concat(lines.map((l, i) => Object.assign({}, l, { employeeId: `__ln${i}`, effectiveFrom: fmtDate(Math.min(fromDay, parseDate(l.effectiveFrom || fmtDate(fromDay)))), effectiveTo: null }))),
       exceptions: [], fills: [],
     });
@@ -965,30 +1030,33 @@
     return out;
   }
 
-  /** Employees of a discipline with planned leave (vacation/comp/holiday) on a day. */
-  function plannedLeaveOn(state, day, positionId, extra = []) {
+  /** Employees of a job class with planned leave (vacation/comp/holiday) on a day. */
+  function plannedLeaveOn(state, day, jobClassId, extra = []) {
     const ix = index(state);
+    const jc = jobClassById(state, jobClassId);
+    const pids = jc ? jc.positionIds : [jobClassId];
     const who = new Set();
     for (const e of state.exceptions.concat(extra)) {
       if (!PLANNED_LEAVE.includes(e.type) || !(e.status === 'approved' || e.status === 'pending')) continue;
       const [a, b] = exceptionRange(e);
       if (day < a || day > b) continue;
       const emp = ix.emp[e.employeeId];
-      if (emp && emp.positionId === positionId) who.add(emp.id);
+      if (emp && pids.includes(emp.positionId)) who.add(emp.id);
     }
     return who;
   }
 
-  /** Days in [from,to] where adding `exc` would put its discipline over the center's daily leave limit. */
+  /** Days in [from,to] where adding `exc` would put the job class over its daily leave limit. */
   function overLeaveLimit(state, exc) {
     if (!PLANNED_LEAVE.includes(exc.type)) return [];
     const emp = state.employees.find((e) => e.id === exc.employeeId);
-    const lim = emp && state.center.maxOffPerDay ? state.center.maxOffPerDay[emp.positionId] : null;
+    const jc = emp ? jobClassOf(state, emp.positionId) : null;
+    const lim = jc ? jc.maxOffPerDay : null;
     if (lim == null || lim === '') return [];
     const [a, b] = exceptionRange(exc);
     const out = [];
     for (let d = a; d <= b; d++) {
-      const who = plannedLeaveOn(state, d, emp.positionId);
+      const who = plannedLeaveOn(state, d, jc.id);
       who.delete(emp.id);
       if (who.size >= +lim) out.push({ day: d, others: [...who] });
     }
@@ -1000,13 +1068,19 @@
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { annualOtBudget: 90000, maxOffPerDay: { pos_ct: 1, pos_law: 1, pos_fire: 1, pos_sup: 1 } });
+    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 3 });
     // Minimums are set per discipline.
     s.positions = [
-      { id: 'pos_ct', name: 'Call-taker', authorized: 18, authorizedPartTime: 3, isConsole: true, priority: 4 },
-      { id: 'pos_law', name: 'Law dispatch', authorized: 13, authorizedPartTime: 1, isConsole: true, priority: 2 },
-      { id: 'pos_fire', name: 'Fire/EMS dispatch', authorized: 9, isConsole: true, priority: 3 },
-      { id: 'pos_sup', name: 'Shift Supervisor', authorized: 6, isConsole: false, priority: 1 },
+      { id: 'pos_ct', name: 'Call-taker', isConsole: true, priority: 4 },
+      { id: 'pos_law', name: 'Law dispatch', isConsole: true, priority: 2 },
+      { id: 'pos_fire', name: 'Fire/EMS dispatch', isConsole: true, priority: 3 },
+      { id: 'pos_sup', name: 'Shift Supervisor', isConsole: false, priority: 1 },
+    ];
+    // Job classes hold authorized strength; one class can staff several consoles.
+    s.jobClasses = [
+      { id: 'jc_ct', name: 'Call-taker', positionIds: ['pos_ct'], authorized: 18, authorizedPartTime: 3, maxOffPerDay: 1 },
+      { id: 'jc_tc', name: 'Telecommunicator', positionIds: ['pos_law', 'pos_fire'], authorized: 22, authorizedPartTime: 1, maxOffPerDay: 2 },
+      { id: 'jc_sup', name: 'Supervisor', positionIds: ['pos_sup'], authorized: 6, authorizedPartTime: 0, maxOffPerDay: 1 },
     ];
     const grid = (fn) => Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => fn(d, h)));
     const weekendNight = (d, h) => (d === 5 || d === 6) && h >= 22;
@@ -1151,6 +1225,7 @@
 
   const api = {
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
+    jobClasses, jobClassOf, jobClassById, classMembers,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,

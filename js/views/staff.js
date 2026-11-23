@@ -12,35 +12,55 @@
       const emps = st.employees.filter((e) => ui.staff.showInactive || e.status !== 'inactive')
         .sort((a, b) => String(a.positionId).localeCompare(b.positionId) || P.parseDate(a.seniorityDate || a.hireDate || '2000-01-01') - P.parseDate(b.seniorityDate || b.hireDate || '2000-01-01'));
       const lineOf = (e) => st.lines.find((l) => l.employeeId === e.id && P.lineActiveOn(l, today));
-      const vacancyCost = sum.reduce((s, r) => s + r.vacancies * 2080 * P.avgRate(st, r.position.id) * (+st.center.otMultiplier || 1.5), 0);
-      return `<div class="page-head"><div><h1>Staff & authorized strength</h1><p>Authorized positions vs. who you actually have. Schedules and minimum checks use current staff only.</p></div>
+      const mult = +st.center.otMultiplier || 1.5;
+      const vacancyCost = sum.reduce((t, r) => t + r.vacancies * 2080 * r.avgRate * mult, 0);
+      const hireCost = sum.reduce((t, r) => t + r.vacancies * 2080 * (r.minRate || r.avgRate), 0);
+      const classes = P.jobClasses(st);
+      const classSel = (pid) => {
+        const cur = P.jobClassOf(st, pid);
+        return `<select data-change="pos-class" data-id="${pid}">${classes.map((c) => `<option value="${esc(c.id)}"${cur && cur.id === c.id ? ' selected' : ''}>${esc(c.name)}</option>`).join('')}<option value="__new">+ New job class…</option></select>`;
+      };
+      return `<div class="page-head"><div><h1>Staff & authorized strength</h1><p>Authorized positions belong to job classes; minimums and certifications belong to consoles. Schedules and minimum checks use current staff only.</p></div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${ui.staff.showInactive ? 'checked' : ''} data-change="staff-inactive"> Show separated</label>
         <button class="btn primary" data-action="emp-edit">+ Employee</button></div></div>
       <div class="grid" style="margin-bottom:14px">
-        <div class="panel"><h2>Positions</h2><div class="table-wrap"><table class="positions"><thead><tr><th>Discipline</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (a separate category; not counted in Authorized)">PT authorized</th><th class="num" title="Part-time staff (full-time equivalent at their weekly caps)">PT filled</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
-          ${sum.map((r) => `<tr><td><input value="${esc(r.position.name)}" data-change="pos-field" data-id="${r.position.id}" data-f="name"></td>
-            <td><input type="number" min="0" value="${r.authorized}" data-change="pos-field" data-id="${r.position.id}" data-f="authorized" style="width:80px"></td>
+        <div class="panel"><h2>Job classes</h2>
+          <p class="small muted" style="margin:0">A job class is a budgeted classification (e.g. Telecommunicator) and can staff several consoles. People belong to the job class of their home console.</p>
+          <div class="table-wrap"><table class="positions"><thead><tr><th>Job class</th><th>Consoles</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (separate from full-time)">PT authorized</th><th class="num" title="Part-time staff (FTE at their weekly caps)">PT filled</th><th class="num" title="Active and solo-cleared staff">Countable</th><th title="Most people in this job class on planned leave (vacation/comp/holiday) per day">Max off / day</th><th></th></tr></thead><tbody>
+          ${sum.map((r) => `<tr><td><input value="${esc(r.jobClass.name)}" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="name"></td>
+            <td class="small">${r.positionIds.map((pid) => `<span class="badge">${esc(App.posName(pid))}</span>`).join(' ') || '<span class="muted">none</span>'}</td>
+            <td><input type="number" min="0" value="${r.authorized}" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="authorized"></td>
             <td class="num">${r.fullTime}</td><td class="num">${r.vacancies ? `<span class="badge bad">${r.vacancies}</span>` : 0}</td>
-            <td><input type="number" min="0" value="${r.authorizedPart || ''}" placeholder="0" data-change="pos-field" data-id="${r.position.id}" data-f="authorizedPartTime" style="width:70px"></td>
-            <td class="num">${r.partTime}${r.partTime ? ` <span class="small muted">(${r.partFTE.toFixed(1)} FTE)</span>` : ''}${r.partVacancies ? ` <span class="badge warn" title="Part-time vacancies">${r.partVacancies} open</span>` : ''}</td><td class="num">${r.countable}</td>
-            <td><input type="number" min="1" value="${esc(r.position.priority ?? '')}" data-change="pos-field" data-id="${r.position.id}" data-f="priority" style="width:70px"></td>
-            <td><input type="number" min="0" value="${esc((st.center.maxOffPerDay || {})[r.position.id] ?? '')}" data-change="max-off" data-id="${r.position.id}" style="width:70px" placeholder="none"></td>
-            <td><input type="checkbox" ${r.position.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${r.position.id}" data-f="isConsole"></td>
-            <td><button class="btn sm danger" data-action="pos-del" data-id="${r.position.id}">✕</button></td></tr>`).join('')}
-        </tbody></table></div><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Position</button></div>
+            <td><input type="number" min="0" value="${r.authorizedPart || ''}" placeholder="0" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="authorizedPartTime"></td>
+            <td class="num">${r.partTime}${r.partTime ? ` <span class="small muted">(${r.partFTE.toFixed(1)} FTE)</span>` : ''}${r.partVacancies ? ` <span class="badge warn" title="Part-time vacancies">${r.partVacancies} open</span>` : ''}</td>
+            <td class="num">${r.countable}</td>
+            <td><input type="number" min="0" value="${esc(r.jobClass.maxOffPerDay ?? '')}" placeholder="none" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="maxOffPerDay"></td>
+            <td>${r.positionIds.length ? '' : `<button class="btn sm danger" data-action="jc-del" data-id="${esc(r.jobClass.id)}" title="Delete job class">✕</button>`}</td></tr>`).join('')}
+          </tbody></table></div><button class="btn sm" data-action="jc-add" style="margin-top:8px">+ Job class</button></div>
+        <div class="panel"><h2>Consoles</h2>
+          <p class="small muted" style="margin:0">Minimum staffing is set per console (Settings). When short, consoles with a lower fill priority number are staffed first.</p>
+          <div class="table-wrap"><table class="positions"><thead><tr><th>Console</th><th>Job class</th><th class="num" title="Home console">Home staff</th><th class="num" title="Others certified on it">Also certified</th><th title="When short, lower numbers are staffed first">Fill priority</th><th>Console seat</th><th></th></tr></thead><tbody>
+          ${st.positions.map((p) => `<tr><td><input value="${esc(p.name)}" data-change="pos-field" data-id="${p.id}" data-f="name"></td>
+            <td>${classSel(p.id)}</td>
+            <td class="num">${st.employees.filter((e) => e.status !== 'inactive' && e.positionId === p.id).length}</td>
+            <td class="num">${st.employees.filter((e) => e.status !== 'inactive' && e.positionId !== p.id && (e.qualifications || []).includes(p.id)).length}</td>
+            <td><input type="number" min="1" value="${esc(p.priority ?? '')}" data-change="pos-field" data-id="${p.id}" data-f="priority"></td>
+            <td><input type="checkbox" ${p.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${p.id}" data-f="isConsole"></td>
+            <td><button class="btn sm danger" data-action="pos-del" data-id="${p.id}">✕</button></td></tr>`).join('')}
+          </tbody></table></div><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Console</button></div>
         <div class="panel"><h2>What the vacancies cost</h2>
-          <p>${sum.map((r) => `${esc(r.position.name)}: <b>${r.vacancies}</b> vacant`).join(' · ')}</p>
-          <p class="small muted">Authorized counts full-time positions only. Part-time positions are a separate category (PT authorized); part-timers don't fill a full-time vacancy, but they work open shifts at straight time.</p>
-          ${sum.some((r) => r.authorizedPart) ? `<p>Part-time: ${sum.filter((r) => r.authorizedPart).map((r) => `${esc(r.position.name)} ${r.partTime} of ${r.authorizedPart}`).join(' · ')}</p>` : ''}
-          <p>If every vacant position's ~2,080 hrs/yr were backfilled with overtime: <b>${money(vacancyCost)}/yr</b> (at average rate × ${st.center.otMultiplier}).</p>
-          <p class="small muted">A new hire at base rate costs roughly ${money(sum.reduce((s, r) => s + r.vacancies * 2080 * Math.min(...st.employees.filter((e) => e.positionId === r.position.id && +e.hourlyRate).map((e) => +e.hourlyRate).concat([P.avgRate(st, r.position.id) || 0])), 0))}/yr in wages for the same hours (before benefits and training time).</p></div>
+          <p>${sum.map((r) => `${esc(r.jobClass.name)}: <b>${r.vacancies}</b> vacant`).join(' · ')}</p>
+          <p class="small muted">Authorized counts full-time positions only. Part-time positions are a separate count (PT authorized); part-timers don't fill a full-time vacancy, but they work open shifts at straight time.</p>
+          ${sum.some((r) => r.authorizedPart) ? `<p>Part-time: ${sum.filter((r) => r.authorizedPart).map((r) => `${esc(r.jobClass.name)} ${r.partTime} of ${r.authorizedPart}`).join(' · ')}</p>` : ''}
+          <p>If every vacant position's ~2,080 hrs/yr were backfilled with overtime: <b>${money(vacancyCost)}/yr</b> (at average rate × ${mult}).</p>
+          <p class="small muted">A new hire at base rate costs roughly ${money(hireCost)}/yr in wages for the same hours (before benefits and training time).</p></div>
       </div>
-      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Badge</th><th>Name</th><th>Position</th><th>Status</th><th>Seniority</th><th class="num">Rate</th><th>Current line</th><th>Also certified</th>${App.mode === 'server' ? '<th>Login</th>' : ''}<th></th></tr></thead><tbody>
-        ${emps.map((e) => { const l = lineOf(e); return `<tr class="${e.status === 'inactive' ? 'dim' : ''}"><td>${esc(e.badge)}</td><td>${esc(P.empName(e))}</td><td>${esc(App.posName(e.positionId))}</td>
+      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Badge</th><th>Name</th><th>Job class</th><th>Home console</th><th>Status</th><th>Seniority</th><th class="num">Rate</th><th>Current line</th><th>Also certified</th>${App.mode === 'server' ? '<th>Login</th>' : ''}<th></th></tr></thead><tbody>
+        ${emps.map((e) => { const l = lineOf(e); return `<tr class="${e.status === 'inactive' ? 'dim' : ''}"><td>${esc(e.badge)}</td><td>${esc(P.empName(e))}</td><td>${esc((P.jobClassOf(st, e.positionId) || {}).name || '—')}</td><td>${esc(App.posName(e.positionId))}</td>
           <td>${statusBadge(e)}${P.isPartTime(e) ? ` <span class="badge info" title="Part-time, straight time, capped at ${P.partTimeCap(st, e)} h/week">PT ${P.partTimeCap(st, e)}h</span>` : ''}</td><td>${esc(e.seniorityDate || e.hireDate || '')}</td><td class="num">${money(+e.hourlyRate, 2)}</td>
           <td>${l ? esc(l.name) : '<span class="badge warn">none</span>'}</td><td class="small">${(e.qualifications || []).map((q) => esc(App.posName(q))).join(', ')}</td>
           ${App.mode === 'server' ? `<td class="small">${loginCell(e)}</td>` : ''}
-          <td><button class="btn sm" data-action="emp-edit" data-id="${e.id}">Edit</button></td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">No employees yet.</td></tr>'}
+          <td><button class="btn sm" data-action="emp-edit" data-id="${e.id}">Edit</button></td></tr>`; }).join('') || '<tr><td colspan="11" class="empty">No employees yet.</td></tr>'}
       </tbody></table></div></div>`;
     },
   };
@@ -88,10 +108,40 @@
     App.api('POST', '/api/users/' + el.dataset.id, { resetPassword: true }).then((r) => showTemp(r, 'Password reset')).catch((e) => App.toast(e.message, true)), 'Reset');
   App.actions['user-toggle'] = (el) => App.api('POST', '/api/users/' + el.dataset.id, { disabled: el.dataset.dis === '1' }).then(() => { App.toast(el.dataset.dis === '1' ? 'Login disabled' : 'Login enabled'); loadUsers(); }).catch((e) => App.toast(e.message, true));
 
-  App.changes['max-off'] = (el) => App.commit((s) => {
-    s.center.maxOffPerDay = Object.assign({}, s.center.maxOffPerDay);
-    if (el.value === '') delete s.center.maxOffPerDay[el.dataset.id]; else s.center.maxOffPerDay[el.dataset.id] = Math.max(0, +el.value);
-  }, 'Leave limit saved');
+  /** Turn an implicit class (a console without a job class) into a saved one. */
+  function ensureClass(s2, id) {
+    let jc = s2.jobClasses.find((c) => c.id === id);
+    if (jc) return jc;
+    const implicit = P.jobClasses(s2).find((c) => c.id === id);
+    if (!implicit) return null;
+    jc = { id: implicit.positionIds.length === 1 ? 'jc_' + implicit.positionIds[0] : P.uid('jc'), name: implicit.name, positionIds: implicit.positionIds.slice(), authorized: implicit.authorized, authorizedPartTime: implicit.authorizedPartTime, maxOffPerDay: implicit.maxOffPerDay };
+    if (s2.jobClasses.some((c) => c.id === jc.id)) jc.id = P.uid('jc');
+    s2.jobClasses.push(jc);
+    return jc;
+  }
+  App.changes['jc-field'] = (el) => App.commit((s2) => {
+    const jc = ensureClass(s2, el.dataset.id);
+    if (!jc) return;
+    const f = el.dataset.f;
+    if (f === 'name') jc.name = el.value || jc.name;
+    else if (f === 'maxOffPerDay') jc.maxOffPerDay = el.value === '' ? null : Math.max(0, +el.value);
+    else jc[f] = Math.max(0, +el.value || 0);
+  }, 'Job class saved');
+  App.actions['jc-add'] = () => App.commit((s2) => s2.jobClasses.push({ id: P.uid('jc'), name: 'New job class', positionIds: [], authorized: 0, authorizedPartTime: 0, maxOffPerDay: null }), 'Job class added. Assign consoles to it below.');
+  App.actions['jc-del'] = (el) => App.commit((s2) => { s2.jobClasses = s2.jobClasses.filter((c) => c.id !== el.dataset.id); }, 'Job class deleted');
+  App.changes['pos-class'] = (el) => App.commit((s2) => {
+    const pid = el.dataset.id;
+    let target = el.value === '__new' ? null : ensureClass(s2, el.value);
+    // Make every current class explicit so the move can't change the others.
+    for (const c of P.jobClasses(s2)) ensureClass(s2, c.id);
+    if (!target) {
+      const p = s2.positions.find((x) => x.id === pid);
+      target = { id: P.uid('jc'), name: p ? p.name : 'New job class', positionIds: [], authorized: 0, authorizedPartTime: 0, maxOffPerDay: null };
+      s2.jobClasses.push(target);
+    } else target = s2.jobClasses.find((c) => c.id === target.id);
+    for (const c of s2.jobClasses) c.positionIds = (c.positionIds || []).filter((x) => x !== pid);
+    target.positionIds.push(pid);
+  }, 'Console moved');
   App.changes['staff-inactive'] = (el) => { App.ui.staff.showInactive = el.checked; App.render(); };
   App.changes['pos-field'] = (el) => App.commit((s) => {
     const p = s.positions.find((x) => x.id === el.dataset.id);
@@ -99,13 +149,17 @@
   });
   App.actions['pos-add'] = () => App.commit((s) => {
     const id = P.uid('pos');
-    s.positions.push({ id, name: 'New position', authorized: 0, isConsole: false });
+    s.positions.push({ id, name: 'New console', isConsole: true });
     s.minimums[id] = Array.from({ length: 7 }, () => new Array(24).fill(0));
   }, 'Position added');
   App.actions['pos-del'] = (el) => {
     const used = S().employees.some((e) => e.positionId === el.dataset.id);
-    if (used) return App.toast('Move employees off this position first', true);
-    App.confirm('Delete this position and its minimum staffing grid?', () => App.commit((s) => { s.positions = s.positions.filter((p) => p.id !== el.dataset.id); delete s.minimums[el.dataset.id]; }, 'Position deleted'), 'Delete');
+    if (used) return App.toast('Move employees off this console first (change their home console)', true);
+    App.confirm('Delete this console and its minimum staffing grid?', () => App.commit((s) => {
+      s.positions = s.positions.filter((p) => p.id !== el.dataset.id);
+      delete s.minimums[el.dataset.id];
+      for (const c of s.jobClasses) c.positionIds = (c.positionIds || []).filter((x) => x !== el.dataset.id);
+    }, 'Console deleted'), 'Delete');
   };
 
   App.actions['emp-edit'] = (el) => {
@@ -117,7 +171,7 @@
         <div class="field"><label>First name</label><input name="firstName" value="${esc(e.firstName)}" required></div>
         <div class="field"><label>Last name</label><input name="lastName" value="${esc(e.lastName)}" required></div>
         <div class="field"><label>Badge / employee #</label><input name="badge" value="${esc(e.badge)}"></div>
-        <div class="field"><label>Position</label><select name="positionId">${App.opts(st.positions, e.positionId)}</select></div>
+        <div class="field"><label>Home console (sets job class)</label><select name="positionId">${App.opts(st.positions, e.positionId, (p) => `${p.name} (${(P.jobClassOf(st, p.id) || {}).name || ''})`)}</select></div>
         <div class="field"><label>Status</label><select name="status">${App.opts(P.STATUSES, e.status, (s) => s.label)}</select></div>
         <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time</option></select></div>
         <div class="field"><label>Part-time weekly cap (h)</label><input type="number" step="0.5" min="1" max="40" name="maxWeeklyHours" value="${esc(e.maxWeeklyHours ?? '')}" placeholder="${esc(st.center.partTimeDefaultCap)}"></div>

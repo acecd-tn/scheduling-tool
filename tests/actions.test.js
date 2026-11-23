@@ -81,7 +81,7 @@ test('list-mode posting collects volunteers until a supervisor awards', () => {
 
 test('vacation bid: seniority turns, per-discipline daily cap, rounds', () => {
   const s = center();
-  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', positionIds: ['tc'], rounds: 2, maxDaysPerPick: 5, pickUnit: 'shifts', caps: { tc: 1 }, status: 'draft', picks: [] });
+  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', jobClassIds: ['jc_tc'], rounds: 2, maxDaysPerPick: 5, pickUnit: 'shifts', caps: { jc_tc: 1 }, status: 'draft', picks: [] });
   A.run(s, sup, 'vacOpen', { bidId: 'vb' }, ctx);
   assert.equal(A.vacTurn(s, s.vacationBids[0]).employee.id, 'a');
   assert.throws(() => A.run(s, as('b'), 'vacPick', { bidId: 'vb', from: '2026-03-01', to: '2026-03-07' }, ctx), /not your turn/);
@@ -105,7 +105,7 @@ test('shift bid: employees pick only on their own turn', () => {
 
 test('vacation pick limit counts scheduled workdays (5 = a full week off on 5x8)', () => {
   const s = center();
-  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', positionIds: ['tc'], rounds: 1, maxDaysPerPick: 5, pickUnit: 'shifts', caps: {}, status: 'draft', picks: [] });
+  s.vacationBids.push({ id: 'vb', name: 'VB', from: '2026-02-01', to: '2026-12-31', jobClassIds: ['jc_tc'], rounds: 1, maxDaysPerPick: 5, pickUnit: 'shifts', caps: {}, status: 'draft', picks: [] });
   A.run(s, sup, 'vacOpen', { bidId: 'vb' }, ctx);
   // a works Sun-Thu: 2026-03-01 (Sun) .. 03-07 (Sat) = 5 workdays → allowed.
   assert.throws(() => A.run(s, as('a'), 'vacPick', { bidId: 'vb', from: '2026-03-01', to: '2026-03-09' }, ctx), /5 scheduled workdays/);

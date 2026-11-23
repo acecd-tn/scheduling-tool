@@ -32,10 +32,10 @@
         const net = Math.max(1, annual - u.leave);
         const ot = builtInOT(st, r.tpl, r.pat);
         const perPos = sum.map((s) => {
-          const req = P.requiredWeeklyHours(st, s.position.id) * 52.143;
+          const req = s.requiredWeeklyHours * 52.143;
           const fte = req / net;
           const gap = fte - s.countableFTE;
-          const rate = P.avgRate(st, s.position.id);
+          const rate = s.avgRate;
           return { s, fte, gap, gapCost: Math.max(0, gap) * net * rate * mult, builtCost: ot.min * Math.min(s.countable - s.partTime, Math.ceil(fte)) * rate * mult };
         });
         return { i, r, pat, tpl, weekly, annual, net, relief: 8760 / net, ot, perPos };
@@ -44,7 +44,7 @@
       <div class="panel" style="margin-bottom:14px"><div class="form-grid">
         <div class="field"><label>Avg leave hours / employee / year</label><input type="number" min="0" value="${u.leave}" data-change="plan-leave"></div>
         <div class="field"><label>From your data (last 365 days)</label><div>${hrs(actual.perEmployee)} h <span class="small muted">(${Object.entries(actual.byType).map(([k, v]) => `${App.excType(k).abbr} ${hrs(v / actual.headcount)}`).join(', ') || 'no leave recorded'})</span> <button class="btn sm" data-action="plan-use-actual">Use</button></div></div>
-        <div class="field"><label>Required coverage</label><div>${sum.map((s) => `${esc(s.position.name)}: ${hrs(P.requiredWeeklyHours(st, s.position.id))} person-h/wk`).join('<br>')}</div></div>
+        <div class="field"><label>Required coverage</label><div>${sum.map((s) => `${esc(s.position.name)}: ${hrs(s.requiredWeeklyHours)} person-h/wk <span class="small muted">(${s.positionIds.map((pid) => esc(App.posName(pid))).join(' + ')})</span>`).join('<br>')}</div></div>
       </div><p class="small muted">Leave should include vacation, sick, holiday, training, FMLA, military and other time off the console. Typical PSAPs run 180–280 h. Required coverage comes from the minimum grid in Settings.</p></div>
       <div class="panel"><div class="table-wrap"><table><thead><tr><th>Shift</th><th>Pattern</th><th class="num">Avg h/wk</th><th class="num">Net avail h/yr</th><th class="num">Relief factor</th><th class="num">Built-in OT h/yr/FTE</th>
         ${sum.map((s) => `<th class="num">${esc(s.position.name)} FTE needed</th><th class="num" title="Full-time plus part-time FTE">vs ${s.countableFTE.toFixed(1)} on staff</th>`).join('')}<th class="num">Est. OT/yr to cover gap + built-in</th><th></th></tr></thead><tbody>

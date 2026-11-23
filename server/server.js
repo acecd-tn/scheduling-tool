@@ -442,6 +442,9 @@ async function handle(req, res) {
 // ------------------------------------------------------------- startup
 function bootstrap() {
   state = loadState();
+  // Save any one-time data upgrades made while loading, so they don't depend on
+  // someone later editing the affected records.
+  if (state) writeAll(state);
   const seedDemo = CFG.seedDemo;
   if (!state) {
     state = seedDemo ? P.migrate(P.demoState()) : P.migrate(P.emptyState());

@@ -281,7 +281,7 @@ test('part-time: extra shifts at straight time, ranked first, capped, not forced
 test('staffing: authorized counts full-time; part-timers shown as FTE', () => {
   const s = tiny();
   Object.assign(s.employees[2], { employmentType: 'part', maxWeeklyHours: 20 });
-  s.positions[0].authorizedPartTime = 2;
+  s.jobClasses[0].authorizedPartTime = 2;
   const r = P.staffingSummary(s)[0];
   assert.equal(r.authorizedPart, 2);
   assert.equal(r.partVacancies, 1);
@@ -306,11 +306,63 @@ test('part-time cap defaults to 32; older saved data moves from the old 29 defau
   assert.equal(later.center.partTimeDefaultCap, 29);
 });
 
+test('job classes: one class staffs several consoles; authorized, bids and leave limits are by class', () => {
+  const s = P.emptyState();
+  s.positions = [{ id: 'law', name: 'Law', authorized: 18 }, { id: 'fire', name: 'Fire/EMS', authorized: 18 }, { id: 'sup', name: 'Supervisor', authorized: 4 }];
+  P.migrate(s);
+  // Converted: one class per console, carrying the console's authorized count.
+  assert.deepEqual(s.jobClasses.map((c) => [c.id, c.authorized]), [['jc_law', 18], ['jc_fire', 18], ['jc_sup', 4]]);
+  // Center merges Fire/EMS into Telecommunicator.
+  const tc = s.jobClasses[0];
+  Object.assign(tc, { name: 'Telecommunicator', positionIds: ['law', 'fire'], authorized: 18, maxOffPerDay: 1 });
+  s.jobClasses = s.jobClasses.filter((c) => c.id !== 'jc_fire');
+  s.employees = [
+    { id: 'a', firstName: 'a', lastName: 'A', positionId: 'law', status: 'active', qualifications: ['fire'], seniorityDate: '2001-01-01' },
+    { id: 'b', firstName: 'b', lastName: 'B', positionId: 'law', status: 'active', qualifications: ['fire'], seniorityDate: '2002-01-01' },
+    { id: 'c', firstName: 'c', lastName: 'C', positionId: 'fire', status: 'active', qualifications: [], seniorityDate: '2000-01-01' },
+    { id: 's', firstName: 's', lastName: 'S', positionId: 'sup', status: 'active', qualifications: [] },
+  ];
+  const sum = P.staffingSummary(s);
+  assert.deepEqual(sum.map((r) => [r.jobClass.name, r.authorized, r.fullTime, r.vacancies]), [['Telecommunicator', 18, 3, 15], ['Supervisor', 4, 1, 3]]);
+  // A bid for either console includes the whole class, by seniority.
+  assert.deepEqual(P.bidOrder(s, { positionId: 'law' }).map((e) => e.id), ['c', 'a', 'b']);
+  assert.deepEqual(P.bidOrder(s, { positionId: 'fire' }).map((e) => e.id), ['c', 'a', 'b']);
+  // Leave limit counts the class: law + fire together, 1 per day.
+  s.exceptions.push({ id: 'v1', employeeId: 'c', date: '2026-03-02', type: 'vacation', status: 'approved' });
+  const req = { id: 'v2', employeeId: 'a', date: '2026-03-02', type: 'vacation', status: 'pending' };
+  s.exceptions.push(req);
+  assert.equal(P.overLeaveLimit(s, req).length, 1);
+  assert.deepEqual([...P.plannedLeaveOn(s, D('2026-03-02'), 'jc_law')].sort(), ['a', 'c']);
+});
+
+test('conversion moves vacation-bid caps and lists from consoles to job classes', () => {
+  const s = P.migrate({
+    positions: [{ id: 'law', name: 'Law', authorized: 10 }],
+    center: { maxOffPerDay: { law: 2 } },
+    vacationBids: [{ id: 'vb', positionIds: ['law'], caps: { law: 1 } }],
+  });
+  assert.equal(s.jobClasses[0].maxOffPerDay, 2);
+  assert.deepEqual(s.vacationBids[0].jobClassIds, ['jc_law']);
+  assert.deepEqual(s.vacationBids[0].caps, { jc_law: 1 });
+  // Runs once: migrating again doesn't double-prefix.
+  const again = P.migrate(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(again.vacationBids[0].caps, { jc_law: 1 });
+  assert.equal(again.jobClasses.length, 1);
+});
+
+test('a console in no job class acts as its own class', () => {
+  const s = P.migrate({ positions: [{ id: 'x', name: 'X' }], center: { schemaVersion: 3 } });
+  s.positions.push({ id: 'y', name: 'Y', authorized: 5 });
+  const cls = P.jobClasses(s);
+  assert.deepEqual(cls.map((c) => c.positionIds), [['x'], ['y']]);
+  assert.equal(P.jobClassOf(s, 'y').authorized, 5);
+});
+
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);
   const sum = P.staffingSummary(s);
-  assert.deepEqual(sum.map((r) => r.position.name), ['Call-taker', 'Law dispatch', 'Fire/EMS dispatch', 'Shift Supervisor']);
+  assert.deepEqual(sum.map((r) => r.jobClass.name), ['Call-taker', 'Telecommunicator', 'Supervisor']);
   assert.equal(sum[0].vacancies, 3);
   const fc = P.otForecast(s, today);
   assert.ok(fc.ytd > 0 && fc.projection >= fc.ytd);
