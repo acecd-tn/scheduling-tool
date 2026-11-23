@@ -182,7 +182,7 @@ async function deliver(diff) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
       } catch (e) { console.warn(`[notify] webhook failed for "${n.title}": ${e.message}`); continue; }
     } else {
-      console.log(`[notify] ${payload.to.map((t) => t.name).join(', ') || '(supervisors)'} — ${n.title}: ${n.body}`);
+      console.log(`[notify] ${payload.to.map((t) => t.name).join(', ') || '(supervisors)'} - ${n.title}: ${n.body}`);
     }
     const cur = state.notifications.find((x) => x.id === n.id);
     if (cur) { cur.delivered = true; q.upsert.run('notifications', cur.id, JSON.stringify(cur), new Date().toISOString()); }
@@ -476,12 +476,19 @@ if (require.main === module) {
   bootstrap();
   const server = http.createServer(handle);
   server.on('error', (e) => {
-    console.error(e.code === 'EADDRINUSE' ? `Port ${PORT} is already in use — another copy may be running, or pick a different port.` : e.message);
+    const where = `${HOST}:${PORT}`;
+    if (e.code === 'EADDRINUSE') {
+      console.error(`Cannot start: port ${PORT} is already in use (${where}). Another copy of the app or another program (IIS, for example) is using it. Pick a different port in the config file, and use the same port in the IIS web.config rewrite URL.`);
+    } else if (e.code === 'EACCES') {
+      console.error(`Cannot start: permission denied for port ${PORT} (${where}). On Windows this usually means another program (often IIS, if a site is bound to this port) holds it, or Windows has reserved it (see: netsh interface ipv4 show excludedportrange protocol=tcp). Pick a different port in the config file, and use the same port in the IIS web.config rewrite URL.`);
+    } else {
+      console.error(`Cannot start on ${where}: ${e.message}`);
+    }
     process.exit(1);
   });
   server.listen(PORT, HOST, () => {
     console.log(`PSAP Scheduler running at http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(`  data: ${DATA_DIR}${CFG.configFile ? '   config: ' + CFG.configFile : ''}${COOKIE_SECURE ? '   (secure cookies — HTTPS only)' : ''}`);
+    console.log(`  data: ${DATA_DIR}${CFG.configFile ? '   config: ' + CFG.configFile : ''}${COOKIE_SECURE ? '   (secure cookies: HTTPS only)' : ''}`);
   });
   const stop = () => { console.log('Shutting down'); server.close(); try { db.close(); } catch { /* ignore */ } process.exit(0); };
   process.on('SIGINT', stop);
