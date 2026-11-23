@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PSAP Scheduler</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">911</span>
+      <div>
+        <div class="brand-title">PSAP Scheduler</div>
+        <div class="brand-sub" id="center-name"></div>
+      </div>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="top-actions">
+      <span class="clock" id="clock"></span>
+      <button class="btn ghost sm" data-action="toggle-theme" title="Toggle light/dark">◐</button>
+    </div>
+  </header>
+  <main id="view" class="view"></main>
+  <div id="modal-root"></div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="js/core.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/views/dashboard.js"></script>
+  <script src="js/views/schedule.js"></script>
+  <script src="js/views/coverage.js"></script>
+  <script src="js/views/openings.js"></script>
+  <script src="js/views/overtime.js"></script>
+  <script src="js/views/bid.js"></script>
+  <script src="js/views/staff.js"></script>
+  <script src="js/views/planner.js"></script>
+  <script src="js/views/settings.js"></script>
+  <script>App.start();</script>
+</body>
+</html>
