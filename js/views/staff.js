@@ -17,11 +17,12 @@
         <div class="toolbar"><label class="check"><input type="checkbox" ${ui.staff.showInactive ? 'checked' : ''} data-change="staff-inactive"> Show separated</label>
         <button class="btn primary" data-action="emp-edit">+ Employee</button></div></div>
       <div class="grid g2" style="margin-bottom:14px">
-        <div class="panel"><h2>Positions</h2><table><thead><tr><th>Discipline</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time staff (full-time equivalent at their weekly caps)">Part-time</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
+        <div class="panel"><h2>Positions</h2><table><thead><tr><th>Discipline</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (a separate category; not counted in Authorized)">PT authorized</th><th class="num" title="Part-time staff (full-time equivalent at their weekly caps)">PT filled</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
           ${sum.map((r) => `<tr><td><input value="${esc(r.position.name)}" data-change="pos-field" data-id="${r.position.id}" data-f="name"></td>
             <td><input type="number" min="0" value="${r.authorized}" data-change="pos-field" data-id="${r.position.id}" data-f="authorized" style="width:80px"></td>
             <td class="num">${r.fullTime}</td><td class="num">${r.vacancies ? `<span class="badge bad">${r.vacancies}</span>` : 0}</td>
-            <td class="num">${r.partTime ? `${r.partTime} <span class="small muted">(${r.partFTE.toFixed(1)} FTE)</span>` : '—'}</td><td class="num">${r.countable}</td>
+            <td><input type="number" min="0" value="${r.authorizedPart || ''}" placeholder="0" data-change="pos-field" data-id="${r.position.id}" data-f="authorizedPartTime" style="width:70px"></td>
+            <td class="num">${r.partTime}${r.partTime ? ` <span class="small muted">(${r.partFTE.toFixed(1)} FTE)</span>` : ''}${r.partVacancies ? ` <span class="badge warn" title="Part-time vacancies">${r.partVacancies} open</span>` : ''}</td><td class="num">${r.countable}</td>
             <td><input type="number" min="1" value="${esc(r.position.priority ?? '')}" data-change="pos-field" data-id="${r.position.id}" data-f="priority" style="width:70px"></td>
             <td><input type="number" min="0" value="${esc((st.center.maxOffPerDay || {})[r.position.id] ?? '')}" data-change="max-off" data-id="${r.position.id}" style="width:70px" placeholder="none"></td>
             <td><input type="checkbox" ${r.position.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${r.position.id}" data-f="isConsole"></td>
@@ -29,7 +30,8 @@
         </tbody></table><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Position</button></div>
         <div class="panel"><h2>What the vacancies cost</h2>
           <p>${sum.map((r) => `${esc(r.position.name)}: <b>${r.vacancies}</b> vacant`).join(' · ')}</p>
-          <p class="small muted">Authorized counts are full-time positions. Part-timers are listed separately and don't fill a vacancy, but they work open shifts at straight time.</p>
+          <p class="small muted">Authorized counts full-time positions only. Part-time positions are a separate category (PT authorized); part-timers don't fill a full-time vacancy, but they work open shifts at straight time.</p>
+          ${sum.some((r) => r.authorizedPart) ? `<p>Part-time: ${sum.filter((r) => r.authorizedPart).map((r) => `${esc(r.position.name)} ${r.partTime} of ${r.authorizedPart}`).join(' · ')}</p>` : ''}
           <p>If every vacant position's ~2,080 hrs/yr were backfilled with overtime: <b>${money(vacancyCost)}/yr</b> (at average rate × ${st.center.otMultiplier}).</p>
           <p class="small muted">A new hire at base rate costs roughly ${money(sum.reduce((s, r) => s + r.vacancies * 2080 * Math.min(...st.employees.filter((e) => e.positionId === r.position.id && +e.hourlyRate).map((e) => +e.hourlyRate).concat([P.avgRate(st, r.position.id) || 0])), 0))}/yr in wages for the same hours (before benefits and training time).</p></div>
       </div>
@@ -117,7 +119,7 @@
         <div class="field"><label>Badge / employee #</label><input name="badge" value="${esc(e.badge)}"></div>
         <div class="field"><label>Position</label><select name="positionId">${App.opts(st.positions, e.positionId)}</select></div>
         <div class="field"><label>Status</label><select name="status">${App.opts(P.STATUSES, e.status, (s) => s.label)}</select></div>
-        <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time (no OT, capped hours)</option></select></div>
+        <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time (straight time, capped hours, never forced)</option></select></div>
         <div class="field"><label>Part-time weekly cap (h)</label><input type="number" step="0.5" min="1" max="40" name="maxWeeklyHours" value="${esc(e.maxWeeklyHours ?? '')}" placeholder="${esc(st.center.partTimeDefaultCap)}"></div>
         <div class="field"><label class="check" style="margin-top:22px"><input type="checkbox" name="soloCleared" ${e.soloCleared ? 'checked' : ''}> Solo-cleared (counts toward minimums)</label></div>
         <div class="field"><label>Hire date</label><input type="date" name="hireDate" value="${esc(e.hireDate)}"></div>

@@ -125,8 +125,7 @@
       maxShiftHours: 16,
       maxHours7Days: 60,
       partTimeFirst: true,        // voluntary list: eligible part-timers (straight time) before full-time OT
-      partTimeMandatory: false,   // part-timers on the mandatory (forced) list
-      partTimeDefaultCap: 29,     // weekly hour cap for part-timers without their own
+      partTimeDefaultCap: 32,     // weekly hour cap for part-timers without their own (part-timers are never forced)
       coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
       minPresenceMinutes: 30,     // a person counts for an hour if on duty at least this long in it
       tradeRequiresApproval: true,
@@ -203,7 +202,13 @@
     for (const p of s.positions) {
       if (!Array.isArray(s.minimums[p.id])) s.minimums[p.id] = Array.from({ length: 7 }, () => new Array(24).fill(0));
     }
-    s.version = 1;
+    // One-time upgrades, recorded in the center settings (which the server saves).
+    if ((+s.center.schemaVersion || 1) < 2) {
+      if (+s.center.partTimeDefaultCap === 29) s.center.partTimeDefaultCap = 32; // 29 was only the shipped default
+      delete s.center.partTimeMandatory;                                          // part-timers are never forced
+      s.center.schemaVersion = 2;
+    }
+    s.version = 2;
     return s;
   }
 
@@ -218,7 +223,7 @@
   const isPartTime = (e) => !!e && e.employmentType === 'part';
   function partTimeCap(state, e) {
     const v = e && e.maxWeeklyHours !== '' && e.maxWeeklyHours != null ? +e.maxWeeklyHours : +state.center.partTimeDefaultCap;
-    return v > 0 ? v : 29;
+    return v > 0 ? v : 32;
   }
   /** The 7-day work week containing a day: the OT period when it is 7 days, else Sunday-Saturday. */
   function workWeek(state, day) {
@@ -642,8 +647,10 @@
       const partFTE = part.reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
       const countableFull = full.filter(countable).length;
       const countablePartFTE = part.filter(countable).reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
+      const authorizedPart = +p.authorizedPartTime || 0;
       return {
         position: p, authorized, current: emps.length, fullTime: full.length, partTime: part.length, partFTE,
+        authorizedPart, partVacancies: Math.max(0, authorizedPart - part.length),
         active, traineeSolo, traineeNot, onLeave,
         countable: active + traineeSolo, countableFTE: countableFull + countablePartFTE,
         vacancies: Math.max(0, authorized - full.length),
@@ -780,7 +787,7 @@
         weekHours = d0 >= wk.start && d0 <= wk.end ? slotHours : 0;
         for (const iv of ivs) if (iv.day >= wk.start && iv.day <= wk.end) weekHours += (iv.end - iv.start) / 60;
         if (weekHours > cap + 1e-6) issues.push(`Part-time cap: ${round2(weekHours)} of ${cap} h this week`);
-        if (opts.order === 'mandatory' && !c.partTimeMandatory) issues.push('Part-time: not on the force list');
+        if (opts.order === 'mandatory') issues.push('Part-time: never forced');
       }
       if (emp.positionId !== slot.positionId) warnings.push('Cross-trained');
       // incremental OT cost
@@ -996,8 +1003,8 @@
     Object.assign(s.center, { annualOtBudget: 90000, maxOffPerDay: { pos_ct: 1, pos_law: 1, pos_fire: 1, pos_sup: 1 } });
     // Minimums are set per discipline.
     s.positions = [
-      { id: 'pos_ct', name: 'Call-taker', authorized: 18, isConsole: true, priority: 4 },
-      { id: 'pos_law', name: 'Law dispatch', authorized: 13, isConsole: true, priority: 2 },
+      { id: 'pos_ct', name: 'Call-taker', authorized: 18, authorizedPartTime: 3, isConsole: true, priority: 4 },
+      { id: 'pos_law', name: 'Law dispatch', authorized: 13, authorizedPartTime: 1, isConsole: true, priority: 2 },
       { id: 'pos_fire', name: 'Fire/EMS dispatch', authorized: 9, isConsole: true, priority: 3 },
       { id: 'pos_sup', name: 'Shift Supervisor', authorized: 6, isConsole: false, priority: 1 },
     ];
@@ -1066,9 +1073,9 @@
     Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
     // Part-time staff: straight time, capped hours. Two call-takers on part-time lines
     // covering the weekend peak, one law dispatcher who only picks up open shifts.
-    const ptCt1 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
-    const ptCt2 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
-    const ptLaw = mk('pos_law', { employmentType: 'part', maxWeeklyHours: 19.5, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
+    const ptCt1 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
+    const ptCt2 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
+    const ptLaw = mk('pos_law', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
     line('pos_ct', 't_e8', 'p_pt2', 5, 'CT PT-1', ptCt1);
     line('pos_ct', 't_d8', 'p_pt3', 4, 'CT PT-2', ptCt2);
     // Vacant lines on the books (authorized but unfilled).

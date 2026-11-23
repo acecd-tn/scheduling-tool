@@ -263,9 +263,7 @@ test('part-time: extra shifts at straight time, ranked first, capped, not forced
   assert.equal(vol[0].cost, 8 * 18);                // straight time
   assert.ok(vol.find((x) => x.emp.id === 'a').cost > 8 * 20); // full-timer is OT
   const forced = P.fillCandidates(s, slot, { order: 'mandatory' });
-  assert.equal(forced.find((x) => x.emp.id === 'c').eligible, false);
-  s.center.partTimeMandatory = true;
-  assert.equal(P.fillCandidates(s, slot, { order: 'mandatory' }).find((x) => x.emp.id === 'c').eligible, true);
+  assert.equal(forced.find((x) => x.emp.id === 'c').eligible, false); // part-timers are never forced
   // Cap: 16 h already this week, another 8 would make 24 > 20.
   s.fills.push({ id: 'p1', date: '2026-01-05', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'c', type: 'voluntary', reason: 'sick' });
   s.fills.push({ id: 'p2', date: '2026-01-06', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'c', type: 'voluntary', reason: 'sick' });
@@ -283,12 +281,29 @@ test('part-time: extra shifts at straight time, ranked first, capped, not forced
 test('staffing: authorized counts full-time; part-timers shown as FTE', () => {
   const s = tiny();
   Object.assign(s.employees[2], { employmentType: 'part', maxWeeklyHours: 20 });
+  s.positions[0].authorizedPartTime = 2;
   const r = P.staffingSummary(s)[0];
+  assert.equal(r.authorizedPart, 2);
+  assert.equal(r.partVacancies, 1);
   assert.equal(r.fullTime, 2);
   assert.equal(r.partTime, 1);
   assert.equal(r.vacancies, 1); // authorized 3, two full-time
   assert.equal(r.partFTE, 0.5);
   assert.equal(r.countableFTE, 2.5);
+});
+
+test('part-time cap defaults to 32; older saved data moves from the old 29 default', () => {
+  const s = tiny();
+  Object.assign(s.employees[2], { employmentType: 'part' });
+  assert.equal(P.partTimeCap(s, s.employees[2]), 32);
+  const old = P.migrate({ version: 1, center: { partTimeDefaultCap: 29, partTimeMandatory: true } });
+  assert.equal(old.center.partTimeDefaultCap, 32);
+  assert.equal(old.center.partTimeMandatory, undefined);
+  const custom = P.migrate({ version: 1, center: { partTimeDefaultCap: 24 } });
+  assert.equal(custom.center.partTimeDefaultCap, 24);
+  // Runs once: a deliberate 29 after the upgrade is kept (the server reloads without the top-level version).
+  const later = P.migrate({ center: Object.assign({}, old.center, { partTimeDefaultCap: 29 }) });
+  assert.equal(later.center.partTimeDefaultCap, 29);
 });
 
 test('demo data builds and produces sane numbers', () => {

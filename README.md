@@ -71,11 +71,13 @@ and after. That matters for grievances and payroll disputes.
   them each hour. When short, disciplines are filled in *fill priority* order.
   The **Consoles** page prints the assignment sheet; supervisors can pin a person to
   one console for a shift.
-- **Part-time staff.** Marked part-time with a weekly hour cap (default 29). Extra
-  shifts are straight time; eligible part-timers are offered open shifts first and are
-  left off the forced list (both settings); the fill list blocks going over the cap.
-  The Overtime page shows hours they covered and the OT that saved.
-- **Staffing levels.** Authorized (full-time) vs. filled vs. vacant per discipline, part-time staff and FTE, trainee/CTO
+- **Part-time staff.** Marked part-time with a weekly hour cap (default 32). Extra
+  shifts are straight time; eligible part-timers are offered open shifts first
+  (setting) and are never forced; the fill list blocks going over the cap. The
+  Overtime page shows hours they covered and the OT that saved.
+- **Staffing levels.** Authorized vs. filled vs. vacant per discipline for full-time
+  positions, with part-time positions as a separate category (PT authorized, filled,
+  FTE), trainee/CTO
   status (trainees not yet solo-cleared don't count), and the OT cost of vacancies.
 - **Openings.** Every hour below minimum, its cause (call-out, vacation, FMLA,
   training, structural) and its OT cost. Fill it directly from a ranked list:

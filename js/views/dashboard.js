@@ -60,10 +60,10 @@
         <div class="panel"><h2>Next 24 hours — staffed / minimum</h2>${strips}
           <div class="legend"><span><span class="badge bad">short</span></span><span><span class="badge warn">at minimum</span></span><span><span class="badge ok">above minimum</span></span></div></div>
         <div class="panel"><h2>Staffing levels</h2>
-          <div class="table-wrap"><table><thead><tr><th>Position</th><th class="num">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time staff (FTE)">Part-time</th><th class="num">Trainees</th><th class="num">Countable</th><th>Fill rate</th></tr></thead><tbody>
+          <div class="table-wrap"><table><thead><tr><th>Position</th><th class="num">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time filled / part-time authorized (separate from full-time)">Part-time</th><th class="num">Trainees</th><th class="num">Countable</th><th>Fill rate</th></tr></thead><tbody>
           ${staffing.map((r) => `<tr><td>${esc(r.position.name)}</td><td class="num">${r.authorized}</td><td class="num">${r.fullTime}</td>
             <td class="num">${r.vacancies ? `<span class="badge bad">${r.vacancies}</span>` : 0}</td>
-            <td class="num" title="${r.partFTE.toFixed(1)} FTE">${r.partTime || '—'}</td>
+            <td class="num" title="${r.partFTE.toFixed(1)} FTE">${r.authorizedPart ? `${r.partTime} / ${r.authorizedPart}${r.partVacancies ? ` <span class="badge warn">${r.partVacancies}</span>` : ''}` : (r.partTime || '—')}</td>
             <td class="num" title="solo-cleared / with CTO">${r.traineeSolo + r.traineeNot ? `${r.traineeSolo}/${r.traineeNot}` : '—'}</td>
             <td class="num" title="Active + solo-cleared trainees">${r.countable}</td>
             <td style="min-width:110px"><div class="meter ${r.pct < 0.85 ? 'bad' : r.pct < 0.95 ? 'warn' : 'ok'}"><span style="width:${Math.min(100, r.pct * 100)}%"></span></div><span class="small muted">${App.pct(r.pct)}</span></td></tr>`).join('')}
