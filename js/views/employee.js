@@ -44,7 +44,7 @@
         return `<tr><td class="nowrap ${x.d === today ? 'today' : ''}"><b>${P.shortDate(x.d)}</b></td><td>${items.join(' ')}</td>
           <td style="text-align:right">${x.reg && !full ? `<button class="btn sm" data-action="me-request" data-day="${x.d}">Request off</button>` : ''}</td></tr>`;
       }).join('');
-      return `<div class="page-head"><div><h1>${esc(P.empName(me))}</h1><p>${esc(App.posName(me.positionId))}${(me.qualifications || []).length ? ' · also certified: ' + me.qualifications.map((q) => esc(App.posName(q))).join(', ') : ''}</p></div>
+      return `<div class="page-head"><div><h1>${esc(P.empName(me))}</h1><p>${esc((P.empClass(st, me) || {}).name || 'No job class')} · certified on: ${P.certifications(me).map((q) => esc(App.posName(q))).join(', ') || 'none yet'}</p></div>
         <div class="toolbar"><button class="btn primary" data-action="me-request">Request time off</button><button class="btn" data-action="go" data-to="open">Open shifts</button><button class="btn" data-action="go" data-to="trades">Trade a shift</button></div></div>
       <div class="kpis">
         ${P.isPartTime(me) ? (() => { const wk = P.workWeek(st, today); const hw = P.empHours(wi.intervals.filter((x) => x.employeeId === me.id), [], wk.start, wk.end); const used = hw.regular + hw.fill; const cap = P.partTimeCap(st, me);
@@ -129,7 +129,7 @@
         return `<tr><td>${t.requesterId === me ? 'You → ' + esc(P.empName(App.emp(t.partnerId))) : esc(P.empName(App.emp(t.requesterId))) + ' → you'}</td><td class="small">${legText(t)}${t.note ? `<div class="muted">${esc(t.note)}</div>` : ''}</td>
           <td>${App.statusBadge(t.status === 'accepted' ? 'awaiting supervisor' : t.status)}</td><td class="nowrap">${act}</td></tr>`;
       }).join('');
-      return `<div class="page-head"><div><h1>Shift trades</h1><p>Trade a shift with a coworker who is certified for your console. Trades are straight time${st.center.tradeRequiresApproval !== false ? ' and need supervisor approval' : ''}.</p></div>
+      return `<div class="page-head"><div><h1>Shift trades</h1><p>Trade a shift with a coworker in your job class. Trades are straight time${st.center.tradeRequiresApproval !== false ? ' and need supervisor approval' : ''}.</p></div>
         <div class="toolbar"><button class="btn primary" data-action="tr-new">Propose a trade</button></div></div>
         <div class="panel">${rows ? `<table><thead><tr><th>Trade</th><th>Shifts</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty">No trades yet.</div>'}</div>`;
     },
@@ -147,13 +147,15 @@
     // Partners: certified for my console and free during that shift.
     let partners = [];
     if (myShift) {
-      partners = P.fillCandidates(st, { positionId: myShift.reg.positionId, start: myShift.reg.start, end: myShift.reg.end })
+      // Trade partners: anyone in my job class who is free (consoles are assigned hour by hour).
+      const myClass = P.empClass(st, me);
+      partners = P.fillCandidates(st, { positionId: myShift.reg.positionId, start: myShift.reg.start, end: myShift.reg.end }, { jobClassId: myClass ? myClass.id : '__none' })
         .filter((c) => c.emp.id !== me.id && c.eligible).map((c) => c.emp).sort((a, b) => P.empName(a).localeCompare(P.empName(b)));
     }
     if (u.partner && !partners.some((e) => e.id === u.partner)) u.partner = '';
     const theirShifts = u.partner ? P.regularShifts(st, today, today + 60, ix).filter((r) => r.employeeId === u.partner) : [];
     return `<div class="field"><label>Shift you want covered</label><select name="tDate" data-change="tr-param" data-keep="1">${App.opts(mineShifts.map((x) => ({ id: P.fmtDate(x.d), name: `${P.shortDate(x.d)} ${x.tpl.code} ${P.mil(x.reg.start)}–${P.mil(x.reg.end)}` })), u.date)}</select></div>
-      <div class="field"><label>Coworker (certified and free for that shift)</label><select name="tPartner" data-change="tr-param" data-keep="1"><option value="">— choose —</option>${App.opts(partners, u.partner, P.empName)}</select>
+      <div class="field"><label>Coworker (same job class, free for that shift)</label><select name="tPartner" data-change="tr-param" data-keep="1"><option value="">— choose —</option>${App.opts(partners, u.partner, P.empName)}</select>
         ${myShift && !partners.length ? '<div class="small muted">Nobody is free and eligible for that shift.</div>' : ''}</div>
       <div class="field"><label>Payback — you work one of their shifts (optional)</label><select name="tPayback" data-keep="1"><option value="">No payback / settle later</option>${App.opts(theirShifts.map((r) => ({ id: P.fmtDate(r.day), name: `${P.shortDate(r.day)} ${P.mil(r.start)}–${P.mil(r.end)}` })), '')}</select></div>
       <div class="field"><label>Note</label><input name="tNote" style="width:100%"></div>`;

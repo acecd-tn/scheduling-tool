@@ -358,6 +358,76 @@ test('a console in no job class acts as its own class', () => {
   assert.equal(P.jobClassOf(s, 'y').authorized, 5);
 });
 
+test('v4 conversion: job class on every employee, line and bid; console becomes a preference', () => {
+  const s = P.migrate({
+    center: { schemaVersion: 3 },
+    positions: [{ id: 'law', name: 'Law' }, { id: 'fire', name: 'Fire/EMS' }, { id: 'sup', name: 'Supervisor' }],
+    jobClasses: [
+      { id: 'tc', name: 'Telecommunicator', positionIds: ['law', 'fire'], authorized: 18 },
+      { id: 'sv', name: 'Supervisor', positionIds: ['sup'], authorized: 4 },
+    ],
+    employees: [
+      { id: 'a', firstName: 'a', lastName: 'A', positionId: 'law', qualifications: ['fire'], status: 'active' },
+      { id: 'b', firstName: 'b', lastName: 'B', positionId: 'fire', qualifications: [], status: 'active' },
+      { id: 's', firstName: 's', lastName: 'S', positionId: 'sup', status: 'active' },
+    ],
+    lines: [{ id: 'L1', positionId: 'law', employeeId: 'a', shiftTemplateId: 't_d8', patternId: 'p_52', effectiveFrom: '2026-01-04' }],
+    bids: [{ id: 'B1', positionId: 'fire', lines: [{ id: 'bl', positionId: 'fire' }] }],
+  });
+  assert.deepEqual(s.employees.map((e) => [e.id, e.jobClassId, e.positionId, e.qualifications.join('+')]),
+    [['a', 'tc', 'law', 'law+fire'], ['b', 'tc', 'fire', 'fire'], ['s', 'sv', 'sup', 'sup']]);
+  assert.equal(s.lines[0].jobClassId, 'tc');
+  assert.equal(s.lines[0].positionId, null);        // nobody tied to a console by their line
+  assert.equal(s.bids[0].jobClassId, 'tc');
+  assert.equal(s.bids[0].lines[0].jobClassId, 'tc');
+  assert.equal(s.center.schemaVersion, 4);
+  // Runs once.
+  s.employees[0].jobClassId = 'sv';
+  assert.equal(P.migrate(s).employees[0].jobClassId, 'sv');
+});
+
+test('job class is the position: staffing, lines and bids follow the explicit job class, not a console', () => {
+  const s = P.migrate({
+    center: { schemaVersion: 4 },
+    positions: [{ id: 'law', name: 'Law', priority: 1 }, { id: 'fire', name: 'Fire', priority: 2 }],
+    jobClasses: [{ id: 'tc', name: 'Telecommunicator', positionIds: ['law', 'fire'], authorized: 3 }, { id: 'ct', name: 'Call-taker', positionIds: [], authorized: 1 }],
+  });
+  for (const pid of ['law', 'fire']) for (const row of s.minimums[pid]) for (let h = 7; h < 15; h++) row[h] = 1;
+  s.employees = [
+    // No preferred console at all: placed purely by certification.
+    { id: 'a', firstName: 'a', lastName: 'A', jobClassId: 'tc', positionId: null, qualifications: ['law', 'fire'], status: 'active', seniorityDate: '2001-01-01' },
+    { id: 'b', firstName: 'b', lastName: 'B', jobClassId: 'tc', positionId: null, qualifications: ['law', 'fire'], status: 'active', seniorityDate: '2002-01-01' },
+    // Different job class, but certified on Fire: a candidate for Fire openings.
+    { id: 'c', firstName: 'c', lastName: 'C', jobClassId: 'ct', positionId: null, qualifications: ['fire'], status: 'active', seniorityDate: '2000-01-01' },
+  ];
+  s.lines = P.generateLines(s, { jobClassId: 'tc', shiftTemplateId: 't_d8', patternId: 'p_52', count: 2, teams: 1, anchorDate: '2026-01-04', effectiveFrom: '2026-01-04' });
+  assert.ok(s.lines.every((l) => l.jobClassId === 'tc' && l.positionId === null));
+  s.lines[0].employeeId = 'a'; s.lines[1].employeeId = 'b';
+  const day = D('2026-01-04');
+  const cov = P.coverage(s, day, day, { keepAssign: true });
+  assert.equal(cov.staffed.law[8], 1);
+  assert.equal(cov.staffed.fire[8], 1);
+  // Staffing is by job class.
+  const sum = P.staffingSummary(s);
+  assert.deepEqual(sum.map((r) => [r.jobClass.name, r.fullTime, r.vacancies]), [['Telecommunicator', 2, 1], ['Call-taker', 1, 0]]);
+  // Fire opening: candidates come from any job class certified on Fire.
+  s.exceptions.push({ id: 'x', employeeId: 'b', date: '2026-01-04', type: 'sick', status: 'approved' });
+  const slot = P.openings(s, day, day).slots[0];
+  assert.ok(slot);
+  const cands = P.fillCandidates(s, slot).map((c) => c.emp.id);
+  assert.ok(cands.includes('c'));
+  // A bid for the job class: bidders are the class; preview totals both consoles.
+  const bid = { id: 'bd', jobClassId: 'tc', effectiveDate: '2026-02-01', lines: P.generateLines(s, { jobClassId: 'tc', shiftTemplateId: 't_d8', patternId: 'p_52', count: 3, teams: 1, anchorDate: '2026-02-01' }), picks: { a: null }, skipped: [] };
+  assert.deepEqual(P.bidOrder(s, bid).map((e) => e.id), ['a', 'b']);
+  const prev = P.previewLines(s, 'tc', bid.lines, D('2026-02-01'), 7);
+  assert.deepEqual(prev.consoles, ['law', 'fire']);
+  assert.equal(prev.cov.staffed.law[8] + prev.cov.staffed.fire[8], 3);
+  bid.picks = { a: bid.lines[0].id, b: bid.lines[1].id };
+  P.applyBid(s, bid);
+  assert.equal(s.lines.filter((l) => l.jobClassId === 'tc' && !l.effectiveTo).length, 3);
+  assert.equal(s.lines.filter((l) => l.effectiveTo === '2026-01-31').length, 2);
+});
+
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);

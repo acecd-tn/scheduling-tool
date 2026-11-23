@@ -12,25 +12,33 @@
       if (!App.isSup()) return employeeBid(st);
       const u = ui.bid;
       const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current lines</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button></div>`;
-      return `<div class="page-head"><div><h1>Lines & Shift Bid</h1><p>A line = shift + rotation pattern + start date. Mix 8, 10 and 12-hour lines freely; switch schedules by bidding a new set of lines with an effective date.</p></div></div>
+      return `<div class="page-head"><div><h1>Lines & Shift Bid</h1><p>A line = job class + shift + rotation pattern + start date. Mix 8, 10 and 12-hour lines freely; switch schedules by bidding a new set of lines with an effective date.</p></div></div>
         ${tabs}${u.tab === 'lines' ? linesTab(st, u) : bidsTab(st, u)}`;
     },
   };
 
   // ------------------------------------------------------------ lines tab
+  // Lines belong to a job class. A preferred console is optional and only breaks ties
+  // when people are placed on consoles each hour.
+  const classOpts = (st, sel) => App.opts(P.jobClasses(st), sel);
+  const consoleOpts = (st, sel) => `<option value="">Any (by certification)</option>${App.opts(st.positions, sel || '')}`;
+
   function linesTab(st, u) {
     const today = P.todayNum();
     const lines = st.lines.filter((l) => u.showPast || !l.effectiveTo || P.parseDate(l.effectiveTo) >= today);
-    const posOrder = {}; st.positions.forEach((p, i) => { posOrder[p.id] = i; });
-    lines.sort((a, b) => posOrder[a.positionId] - posOrder[b.positionId] || String(a.name).localeCompare(b.name, undefined, { numeric: true }));
+    const classes = P.jobClasses(st);
+    const clsOrder = {}; classes.forEach((c, i) => { clsOrder[c.id] = i; });
+    const clsOf = (l) => P.lineClass(st, l);
+    lines.sort((a, b) => (clsOrder[(clsOf(a) || {}).id] ?? 99) - (clsOrder[(clsOf(b) || {}).id] ?? 99) || String(a.name).localeCompare(b.name, undefined, { numeric: true }));
     const assigned = new Set(st.lines.filter((l) => l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today)).map((l) => l.employeeId));
     const unassignedEmps = st.employees.filter((e) => e.status !== 'inactive' && !assigned.has(e.id));
     const vacantLines = lines.filter((l) => !l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today));
-    const summary = st.positions.map((p) => {
-      const ls = lines.filter((l) => l.positionId === p.id && P.lineActiveOn(l, today));
+    const summary = classes.map((c) => {
+      const ls = lines.filter((l) => (clsOf(l) || {}).id === c.id && P.lineActiveOn(l, today));
+      if (!ls.length) return '';
       const byShift = {};
       for (const l of ls) { const t = App.tpl(l.shiftTemplateId); const k = t ? t.code : '?'; byShift[k] = (byShift[k] || 0) + 1; }
-      return `<span class="badge info">${esc(p.name)}: ${ls.length} lines (${Object.entries(byShift).map(([k, v]) => `${v}×${k}`).join(', ')})</span>`;
+      return `<span class="badge info">${esc(c.name)}: ${ls.length} lines (${Object.entries(byShift).map(([k, v]) => `${v}×${k}`).join(', ')})</span>`;
     }).join(' ');
     return `<div class="panel">
       <div class="page-head" style="margin-bottom:8px"><div class="pill-list">${summary}</div>
@@ -38,22 +46,27 @@
         <button class="btn" data-action="line-add">+ Line</button><button class="btn primary" data-action="line-gen" data-target="current">Generate lines…</button></div></div>
       ${unassignedEmps.length ? `<div class="callout warn">No line assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
       ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant line(s) — these produce structural openings until filled.</div>` : ''}
-      <div class="table-wrap"><table><thead><tr><th>Line</th><th>Position</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
-      ${lines.map((l) => lineRow(st, l, 'line')).join('') || '<tr><td colspan="10" class="empty">No lines yet.</td></tr>'}
+      <div class="table-wrap"><table><thead><tr><th>Line</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
+      ${lines.map((l) => lineRow(st, l, 'line')).join('') || '<tr><td colspan="11" class="empty">No lines yet.</td></tr>'}
       </tbody></table></div>
-      <p class="small muted">Rotation anchor = the date the line is on day 1 of its pattern. Lines with the same anchor rotate together (a "team"). Edits save immediately.</p></div>`;
+      <p class="small muted">A line is a job-class schedule: shift, rotation pattern and start date. Each hour, people on duty are placed on consoles by their certifications and the consoles' fill priority; a line's preferred console only breaks ties. Rotation anchor = the date the line is on day 1 of its pattern; lines with the same anchor rotate together (a "team"). Edits save immediately.</p></div>`;
   }
 
-  function lineRow(st, l, kind, bid) {
+  function lineRow(st, l, kind) {
     const pat = st.patterns.find((p) => p.id === l.patternId);
     const wk = pat ? P.patternWeeklyHours(st, pat, l.shiftTemplateId) : 0;
-    const empSel = kind === 'line'
-      ? `<select data-change="line-field" data-id="${l.id}" data-f="employeeId"><option value="">— vacant —</option>${App.opts(st.employees.filter((e) => e.status !== 'inactive' && P.qualifiedFor(e, l.positionId)).sort((a, b) => P.empName(a).localeCompare(P.empName(b))), l.employeeId, P.empName)}</select>`
-      : '';
+    const jc = P.lineClass(st, l);
+    let empSel = '';
+    if (kind === 'line') {
+      // Everyone in the line's job class (plus whoever holds it now, if they're not).
+      const people = P.classMembers(st, jc).concat(st.employees.filter((e) => e.id === l.employeeId && !P.classMembers(st, jc).includes(e)));
+      empSel = `<select data-change="line-field" data-id="${l.id}" data-f="employeeId"><option value="">— vacant —</option>${App.opts(people.sort((a, b) => P.empName(a).localeCompare(P.empName(b))), l.employeeId, P.empName)}</select>`;
+    }
     const ended = l.effectiveTo && P.parseDate(l.effectiveTo) < P.todayNum();
     const ch = kind === 'line' ? 'line-field' : 'bidline-field';
     return `<tr class="${ended ? 'dim' : ''}"><td><input value="${esc(l.name)}" data-change="${ch}" data-id="${l.id}" data-f="name" style="min-width:90px"></td>
-      <td>${kind === 'line' ? `<select data-change="${ch}" data-id="${l.id}" data-f="positionId">${App.opts(st.positions, l.positionId)}</select>` : esc(App.posName(l.positionId))}</td>
+      <td>${kind === 'line' ? `<select data-change="${ch}" data-id="${l.id}" data-f="jobClassId">${classOpts(st, jc ? jc.id : '')}</select>` : esc(jc ? jc.name : '')}</td>
+      <td><select data-change="${ch}" data-id="${l.id}" data-f="positionId">${consoleOpts(st, l.positionId)}</select></td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="shiftTemplateId">${App.opts(st.shiftTemplates, l.shiftTemplateId, (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select></td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="patternId">${App.opts(st.patterns, l.patternId)}</select></td>
       <td><input type="date" value="${esc(l.anchorDate || l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="anchorDate"></td>
@@ -86,13 +99,25 @@
   App.actions['bid-tab'] = (el) => { App.ui.bid.tab = el.dataset.tab; App.render(); };
   App.changes['lines-past'] = (el) => { App.ui.bid.showPast = el.checked; App.render(); };
   App.changes['line-field'] = (el) => {
-    App.commit((s) => { const l = s.lines.find((x) => x.id === el.dataset.id); if (l) l[el.dataset.f] = el.value || null; });
+    let msg = '';
+    App.commit((s2) => {
+      const l = s2.lines.find((x) => x.id === el.dataset.id);
+      if (!l) return;
+      l[el.dataset.f] = el.value || null;
+      // Changing a line's job class releases a holder who isn't in the new class.
+      if (el.dataset.f === 'jobClassId' && l.employeeId) {
+        const e = s2.employees.find((x) => x.id === l.employeeId);
+        if (e && (P.empClass(s2, e) || {}).id !== l.jobClassId) { l.employeeId = null; msg = `${P.empName(e)} isn't in that job class — line is now vacant`; }
+      }
+    }, '');
+    if (msg) App.toast(msg);
   };
   App.actions['line-del'] = (el) => App.confirm('Delete this line? Past schedule history for it will disappear. To end a line but keep history, set an end date instead.', () => App.commit((s) => { s.lines = s.lines.filter((l) => l.id !== el.dataset.id); }, 'Line deleted'), 'Delete');
   App.actions['line-add'] = () => {
     const st = S();
     const t = P.fmtDate(P.todayNum());
-    App.commit((s) => s.lines.push({ id: P.uid('ln'), name: 'New line', positionId: st.positions[0].id, shiftTemplateId: st.shiftTemplates[0].id, patternId: st.patterns[0].id, anchorDate: t, effectiveFrom: t, effectiveTo: null, employeeId: null }), 'Line added');
+    const jc = P.jobClasses(st).find((c) => P.classMembers(st, c).length) || P.jobClasses(st)[0];
+    App.commit((s) => s.lines.push({ id: P.uid('ln'), name: 'New line', jobClassId: jc ? jc.id : null, positionId: null, shiftTemplateId: st.shiftTemplates[0].id, patternId: st.patterns[0].id, anchorDate: t, effectiveFrom: t, effectiveTo: null, employeeId: null }), 'Line added');
   };
 
   // Generator — used for current lines and for bid packages.
@@ -104,7 +129,8 @@
     App.modal({
       title: 'Generate lines',
       body: `<div class="form-grid">
-        ${bid ? `<div class="field"><label>Console</label><select name="positionId">${App.opts(st.positions.filter((p) => { const c = P.jobClassOf(st, bid.positionId); return c ? c.positionIds.includes(p.id) : p.id === bid.positionId; }), bid.positionId)}</select></div>` : `<div class="field"><label>Console</label><select name="positionId">${App.opts(st.positions, '')}</select></div>`}
+        ${bid ? `<input type="hidden" name="jobClassId" value="${esc((P.bidClass(st, bid) || {}).id || '')}">` : `<div class="field"><label>Job class</label><select name="jobClassId">${classOpts(st, '')}</select></div>`}
+        <div class="field"><label>Preferred console (optional)</label><select name="positionId">${consoleOpts(st, '')}</select></div>
         <div class="field"><label>Shift</label><select name="shiftTemplateId">${App.opts(st.shiftTemplates, '', (t) => `${t.code} — ${t.name} ${t.start.replace(':', '')} ${t.hours}h`)}</select></div>
         <div class="field"><label>Pattern</label><select name="patternId">${App.opts(st.patterns, '')}</select></div>
         <div class="field"><label>Number of lines</label><input type="number" name="count" min="1" value="10"></div>
@@ -133,7 +159,7 @@
     const bid = st.bids.find((b) => b.id === u.bidId);
     const list = `<div class="panel"><h2>Bid packages <button class="btn sm primary" data-action="bid-new">+ New bid</button></h2>
       ${st.bids.length ? `<table><thead><tr><th>Name</th><th>Job class</th><th>Effective</th><th>Lines</th><th>Picked</th><th>Status</th><th></th></tr></thead><tbody>
-      ${st.bids.map((b) => `<tr class="${b.id === u.bidId ? 'bidder-now' : ''}"><td>${esc(b.name)}</td><td>${esc((P.jobClassOf(st, b.positionId) || {}).name || App.posName(b.positionId))}</td><td>${esc(b.effectiveDate)}</td><td>${b.lines.length}</td>
+      ${st.bids.map((b) => `<tr class="${b.id === u.bidId ? 'bidder-now' : ''}"><td>${esc(b.name)}</td><td>${esc((P.bidClass(st, b) || {}).name || '?')}</td><td>${esc(b.effectiveDate)}</td><td>${b.lines.length}</td>
         <td>${Object.keys(b.picks || {}).length}/${P.bidOrder(st, b).length}</td><td><span class="badge ${b.status === 'applied' ? 'ok' : b.status === 'open' ? 'warn' : ''}">${b.status}</span></td>
         <td class="nowrap"><button class="btn sm" data-action="bid-open" data-id="${b.id}">Open</button> <button class="btn sm danger" data-action="bid-del" data-id="${b.id}">✕</button></td></tr>`).join('')}
       </tbody></table>` : '<div class="empty">No bids yet. Create one to re-bid the current lines or to move to a new schedule (e.g. 8s → 12s) on an effective date.</div>'}</div>`;
@@ -148,11 +174,11 @@
     const eff = P.parseDate(bid.effectiveDate);
     const cyc = Math.max(7, ...bid.lines.map((l) => ((st.patterns.find((p) => p.id === l.patternId) || {}).cycle || []).length));
     const days = Math.min(56, cyc);
-    const prev = P.previewLines(st, bid.positionId, bid.lines, eff, days);
+    // The coverage preview totals every console the job class staffs (a cross-trained pool).
+    const jc = P.bidClass(st, bid);
+    const prev = P.previewLines(st, jc ? jc.id : bid.positionId, bid.lines, eff, days);
     const cov = prev.cov;
-    // A job class can staff several consoles: total them (the bidders are a cross-trained pool).
-    const jc = P.jobClassOf(st, bid.positionId);
-    const pids = jc ? jc.positionIds : [bid.positionId];
+    const pids = prev.consoles || [];
     const sumAt = (obj, i) => pids.reduce((t, pid) => t + ((obj[pid] || [])[i] || 0), 0);
     let shortH = 0;
     const short = new Array(24).fill(0), minS = new Array(24).fill(Infinity), req = new Array(24).fill(0);
@@ -183,7 +209,7 @@
         ${editable ? `<td><button class="btn sm danger" data-action="bidline-del" data-id="${l.id}">✕</button></td>` : '<td></td>'}</tr>`;
     }).join('');
     return `<div class="panel" style="margin-top:14px">
-      <h2>${esc(bid.name)} — ${esc(jc ? jc.name : App.posName(bid.positionId))}${pids.length > 1 ? ` <span class="small muted">(${pids.map((x) => esc(App.posName(x))).join(' + ')})</span>` : ''}, effective ${P.shortDate(eff)}
+      <h2>${esc(bid.name)} — ${esc(jc ? jc.name : '?')}${pids.length > 1 ? ` <span class="small muted">(${pids.map((x) => esc(App.posName(x))).join(' + ')})</span>` : ''}, effective ${P.shortDate(eff)}
         <span class="toolbar">${bid.status === 'draft' ? '<button class="btn sm primary" data-action="bid-status" data-s="open">Open bidding</button>' : ''}
         ${bid.status === 'open' ? `<button class="btn sm" data-action="bid-skip" ${cur ? '' : 'disabled'}>Skip current</button><button class="btn sm" data-action="bid-auto">Auto-assign remaining</button><button class="btn sm" data-action="bid-status" data-s="draft">Back to draft</button>` : ''}
         ${editable ? '<button class="btn sm" data-action="line-gen" data-target="bid">+ Generate lines</button><button class="btn sm" data-action="bid-copy-current">+ Copy current lines</button>' : ''}
@@ -223,44 +249,41 @@
     App.modal({
       title: 'New shift bid',
       body: `<div class="form-grid"><div class="field"><label>Name</label><input name="name" value="${esc(`${new Date(eff * 86400000).getUTCFullYear()} shift bid`)}"></div>
-        <div class="field"><label>Job class (everyone in it bids)</label><select name="jobClassId">${App.opts(P.jobClasses(st).filter((c) => c.positionIds.length), '')}</select></div>
+        <div class="field"><label>Job class (everyone in it bids)</label><select name="jobClassId">${App.opts(P.jobClasses(st).filter((c) => P.classMembers(st, c).length), '')}</select></div>
         <div class="field"><label>Effective date</label><input type="date" name="effectiveDate" value="${P.fmtDate(eff)}"></div>
         <div class="field"><label>Start with</label><select name="seed"><option value="copy">Copy current lines</option><option value="empty">Empty (generate new lines)</option></select></div></div>
         <p class="small muted">Bid order defaults to seniority date (earliest first); you can reorder before or during the bid. Nothing changes on the schedule until you click "Apply".</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="bid-create">Create</button>',
     });
   };
-  function copyCurrent(st, positionId, eff) {
+  function copyCurrent(st, jobClassId, eff) {
     const effN = P.parseDate(eff);
-    const jc = P.jobClassOf(st, positionId);
-    const pids = jc ? jc.positionIds : [positionId];
-    return st.lines.filter((l) => pids.includes(l.positionId) && (P.lineActiveOn(l, effN) || (!l.effectiveTo && P.parseDate(l.effectiveFrom) <= effN)))
-      .map((l) => ({ id: P.uid('bl'), name: l.name, positionId: l.positionId, shiftTemplateId: l.shiftTemplateId, patternId: l.patternId, anchorDate: l.anchorDate || l.effectiveFrom, effectiveFrom: eff }));
+    return st.lines.filter((l) => (P.lineClass(st, l) || {}).id === jobClassId && (P.lineActiveOn(l, effN) || (!l.effectiveTo && P.parseDate(l.effectiveFrom) <= effN)))
+      .map((l) => ({ id: P.uid('bl'), name: l.name, jobClassId, positionId: l.positionId || null, shiftTemplateId: l.shiftTemplateId, patternId: l.patternId, anchorDate: l.anchorDate || l.effectiveFrom, effectiveFrom: eff }));
   }
   App.actions['bid-create'] = () => {
     const f = App.modalForm();
     const st = S();
     const jcSel = P.jobClassById(st, f.jobClassId);
-    if (!jcSel || !jcSel.positionIds.length) return App.toast('Choose a job class that has consoles', true);
-    f.positionId = jcSel.positionIds[0];
-    const bid = { id: P.uid('bid'), name: f.name, positionId: f.positionId, jobClassId: jcSel.id, effectiveDate: f.effectiveDate, status: 'draft', lines: f.seed === 'copy' ? copyCurrent(st, f.positionId, f.effectiveDate) : [], picks: {}, skipped: [], order: [], createdAt: new Date().toISOString() };
+    if (!jcSel) return App.toast('Choose a job class', true);
+    const bid = { id: P.uid('bid'), name: f.name, jobClassId: jcSel.id, positionId: null, effectiveDate: f.effectiveDate, status: 'draft', lines: f.seed === 'copy' ? copyCurrent(st, jcSel.id, f.effectiveDate) : [], picks: {}, skipped: [], order: [], createdAt: new Date().toISOString() };
     App.ui.bid.bidId = bid.id;
     App.commit((s) => s.bids.push(bid), 'Bid created');
     App.closeModal();
   };
-  App.actions['bid-copy-current'] = () => App.commit((s) => { const b = s.bids.find((x) => x.id === App.ui.bid.bidId); b.lines.push(...copyCurrent(s, b.positionId, b.effectiveDate)); }, 'Lines copied');
+  App.actions['bid-copy-current'] = () => App.commit((s) => { const b = s.bids.find((x) => x.id === App.ui.bid.bidId); b.lines.push(...copyCurrent(s, (P.bidClass(s, b) || {}).id, b.effectiveDate)); }, 'Lines copied');
   App.actions['bid-open'] = (el) => { App.ui.bid.bidId = el.dataset.id; App.render(); };
   App.actions['bid-del'] = (el) => App.confirm('Delete this bid package?', () => App.commit((s) => { s.bids = s.bids.filter((b) => b.id !== el.dataset.id); }, 'Bid deleted'), 'Delete');
   App.actions['bid-status'] = (el) => App.commit(() => { curBid().status = el.dataset.s; });
   App.actions['bid-pick'] = (el) => App.act('shiftBidPick', { bidId: el.dataset.bid || App.ui.bid.bidId, lineId: el.dataset.line });
 
-  /** Employee view: open bids for my discipline; pick when it's my turn. */
+  /** Employee view: open bids for my job class; pick when it's my turn. */
   function employeeBid(st) {
     const me = App.me.employeeId;
     const emp = App.emp(me);
-    const myClass = emp ? P.jobClassOf(st, emp.positionId) : null;
-    const bids = st.bids.filter((b) => b.status !== 'draft' && emp && (myClass ? myClass.positionIds.includes(b.positionId) : b.positionId === emp.positionId));
-    if (!bids.length) return '<div class="page-head"><div><h1>Shift bid</h1></div></div><div class="panel empty">No shift bid is open for your discipline.</div>';
+    const myClass = emp ? P.empClass(st, emp) : null;
+    const bids = st.bids.filter((b) => b.status !== 'draft' && myClass && (P.bidClass(st, b) || {}).id === myClass.id);
+    if (!bids.length) return '<div class="page-head"><div><h1>Shift bid</h1></div></div><div class="panel empty">No shift bid is open for your job class.</div>';
     return '<div class="page-head"><div><h1>Shift bid</h1><p>Lines are picked in seniority order. You\'ll be notified when it is your turn.</p></div></div>' + bids.map((b) => {
       const order = P.bidOrder(st, b);
       const cur = b.status === 'open' ? P.currentBidder(st, b) : null;
@@ -301,7 +324,7 @@
     const b = curBid();
     const st = S();
     const unpicked = P.bidOrder(st, b).filter((e) => !b.picks[e.id]).length;
-    App.confirm(`Apply "${esc(b.name)}" effective ${esc(b.effectiveDate)}? Current ${esc((P.jobClassOf(st, b.positionId) || {}).name || App.posName(b.positionId))} lines (all its consoles) will end on ${P.fmtDate(P.parseDate(b.effectiveDate) - 1)} and the ${b.lines.length} bid lines start.${unpicked ? ` <b>${unpicked} employee(s) have no line</b> and will not be scheduled.` : ''} Leave already entered after that date stays in place; check it against the new schedule.`,
+    App.confirm(`Apply "${esc(b.name)}" effective ${esc(b.effectiveDate)}? Current ${esc((P.bidClass(st, b) || {}).name || '')} lines will end on ${P.fmtDate(P.parseDate(b.effectiveDate) - 1)} and the ${b.lines.length} bid lines start.${unpicked ? ` <b>${unpicked} employee(s) have no line</b> and will not be scheduled.` : ''} Leave already entered after that date stays in place; check it against the new schedule.`,
       () => App.commit((s) => P.applyBid(s, s.bids.find((x) => x.id === b.id)), 'Bid applied to schedule'), 'Apply');
   };
   App.changes['bidline-field'] = (el) => App.commit(() => { const l = curBid().lines.find((x) => x.id === el.dataset.id); if (l) l[el.dataset.f] = el.value; });

@@ -125,3 +125,14 @@ test('mandatory list: longest since any OT first, then least senior', () => {
   // d never worked OT (first among never-OT by least senior: d 2010 vs others), then a (Dec), then e (Jan).
   assert.deepEqual(order.filter((x) => ['a', 'd', 'e'].includes(x)), ['d', 'a', 'e']);
 });
+
+test('trades: partner must be in the same job class (not a console)', () => {
+  const s = center();
+  // 'b' moves to another job class: no longer a valid partner for 'a'.
+  s.jobClasses.push({ id: 'other', name: 'Other', positionIds: [], authorized: 0 });
+  s.employees.find((e) => e.id === 'b').jobClassId = 'other';
+  assert.throws(() => A.run(s, as('a'), 'proposeTrade', { partnerId: 'b', date: '2026-01-04' }, ctx), /same job class/);
+  s.employees.find((e) => e.id === 'b').jobClassId = s.employees.find((e) => e.id === 'a').jobClassId;
+  A.run(s, as('a'), 'proposeTrade', { partnerId: 'b', date: '2026-01-04' }, ctx);
+  assert.equal(s.trades.length, 1);
+});

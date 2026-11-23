@@ -92,11 +92,11 @@
   App.actions['ot-log'] = (el) => { App.ui.ot.log = el.dataset.v; App.render(); };
   App.actions['ot-export'] = () => {
     const st = App.S;
-    const rows = [['date', 'start', 'hours', 'employee', 'badge', 'position', 'type', 'reason', 'hourly_rate']];
+    const rows = [['date', 'start', 'hours', 'employee', 'badge', 'job_class', 'console', 'type', 'reason', 'hourly_rate']];
     for (const f of st.fills) {
       if (f.status === 'cancelled') continue;
       const e = App.emp(f.employeeId) || {};
-      rows.push([f.date, f.start, f.hours, P.empName(e), e.badge || '', App.posName(f.positionId), f.type, f.reason, e.hourlyRate || '']);
+      rows.push([f.date, f.start, f.hours, P.empName(e), e.badge || '', (P.empClass(st, e) || {}).name || '', App.posName(f.positionId), f.type, f.reason, e.hourlyRate || '']);
     }
     App.download('overtime-assignments.csv', rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   };

@@ -48,7 +48,7 @@
           <p class="small muted">FLSA default is a 7-day / 40-hour work week, paid leave not counted. Many 12-hour centers use 14/80 or a 7(k)-style period; check your policy / MOU.</p>
           <h3 style="margin-top:12px">Console coverage</h3>
           <div class="form-grid">
-            <div class="field"><label>Count staff toward minimums by</label><select data-change="center" data-k="coverageMode"><option value="assigned" ${c.coverageMode !== 'home' ? 'selected' : ''}>Console assignment (use cross-training)</option><option value="home" ${c.coverageMode === 'home' ? 'selected' : ''}>Home discipline only</option></select></div>
+            <div class="field"><label>Count staff toward minimums by</label><select data-change="center" data-k="coverageMode"><option value="assigned" ${c.coverageMode !== 'home' ? 'selected' : ''}>Console assignment (use cross-training)</option><option value="home" ${c.coverageMode === 'home' ? 'selected' : ''}>Preferred console only</option></select></div>
             <div class="field"><label>Counts for an hour if on duty ≥ (min)</label>${num('minPresenceMinutes', 5)}</div>
           </div>
           <label class="check">${chk('tradeRequiresApproval')} Shift trades need supervisor approval</label>
@@ -78,13 +78,13 @@
             <button class="btn danger" data-action="data-reset">Start empty</button></div>`}
           <div class="section"><h3>Special-day minimums</h3>
             <p class="small muted">Raise (or lower) minimums for a specific date: holidays, July 4th, New Year's Eve, storms, big events.</p>
-            <table><thead><tr><th>Date</th><th>Position</th><th>From hr</th><th>To hr</th><th>Min</th><th>Note</th><th></th></tr></thead><tbody>
+            <table><thead><tr><th>Date</th><th>Console</th><th>From hr</th><th>To hr</th><th>Min</th><th>Note</th><th></th></tr></thead><tbody>
             ${st.minimumOverrides.map((o, i) => `<tr><td>${esc(o.date)}</td><td>${esc(App.posName(o.positionId))}</td><td>${o.startHour}</td><td>${o.endHour}</td><td>${o.minimum}</td><td>${esc(o.note || '')}</td><td><button class="btn sm danger" data-action="ovr-del" data-i="${i}">✕</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">None</td></tr>'}
             <tr><td><input type="date" id="ovr-date"></td><td><select id="ovr-pos">${App.opts(st.positions, '')}</select></td><td><input type="number" id="ovr-s" min="0" max="23" value="0" style="width:60px"></td><td><input type="number" id="ovr-e" min="1" max="24" value="24" style="width:60px"></td><td><input type="number" id="ovr-m" min="0" value="6" style="width:60px"></td><td><input id="ovr-note" placeholder="e.g. NYE"></td><td><button class="btn sm primary" data-action="ovr-add">Add</button></td></tr>
             </tbody></table></div>
         </div>
       </div>
-      <div class="panel" style="margin-top:14px"><h2>Minimum staffing by hour <span class="toolbar"><select data-change="set-pos">${App.opts(st.positions, u.pos)}</select></span></h2>
+      <div class="panel" style="margin-top:14px"><h2>Minimum staffing by hour, per console <span class="toolbar"><select data-change="set-pos">${App.opts(st.positions, u.pos)}</select></span></h2>
         <p class="small muted">Minimum number of people (consoles for console positions) required each hour. Edits save as you go.</p>
         <div class="toolbar" style="margin-bottom:8px">Set
           ${P.DOW.map((d, i) => `<label class="check"><input type="checkbox" class="qf-day" value="${i}" checked> ${d}</label>`).join('')}

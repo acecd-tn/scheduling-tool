@@ -231,6 +231,34 @@
       }
       s.center.schemaVersion = 3;
     }
+    // v4: the job class is the position. Employees and lines get an explicit job class
+    // (from their console's class); the console becomes an optional preference, and a
+    // person's preferred console is always among their certifications. Lines lose their
+    // console so nobody is tied to one by their line.
+    if ((+s.center.schemaVersion || 1) < 4) {
+      const covered = new Set(s.jobClasses.flatMap((c) => c.positionIds || []));
+      for (const p of s.positions) {
+        if (covered.has(p.id)) continue;
+        let id = 'jc_' + p.id;
+        while (s.jobClasses.some((c) => c.id === id)) id += '_';
+        s.jobClasses.push({ id, name: p.name, positionIds: [p.id], authorized: +p.authorized || 0, authorizedPartTime: +p.authorizedPartTime || 0, maxOffPerDay: null });
+      }
+      const classOfPos = (pid) => (s.jobClasses.find((c) => (c.positionIds || []).includes(pid)) || {}).id || null;
+      for (const e of s.employees) {
+        if (!e.jobClassId) e.jobClassId = classOfPos(e.positionId);
+        e.qualifications = [...new Set([e.positionId, ...(e.qualifications || [])].filter(Boolean))];
+      }
+      const empById = {}; for (const e of s.employees) empById[e.id] = e;
+      for (const l of s.lines) {
+        if (!l.jobClassId) l.jobClassId = classOfPos(l.positionId) || (empById[l.employeeId] || {}).jobClassId || null;
+        l.positionId = null;
+      }
+      for (const b of s.bids) {
+        if (!b.jobClassId) b.jobClassId = classOfPos(b.positionId);
+        for (const bl of b.lines || []) { if (!bl.jobClassId) bl.jobClassId = b.jobClassId; bl.positionId = null; }
+      }
+      s.center.schemaVersion = 4;
+    }
     s.version = 2;
     return s;
   }
@@ -244,9 +272,16 @@
   }
 
   /**
-   * Job classes: the budget side (authorized positions, vacancies, leave limits, bid
-   * lists). Each owns one or more consoles (positions). A person's job class follows
-   * from their home console. A console in no class acts as its own class.
+   * Job classes are the job (e.g. Telecommunicator): authorized positions, vacancies,
+   * leave limits, lines and bid lists. Each employee and each line has a job class.
+   * Consoles (state.positions: Law, Fire/EMS...) are only where people sit each hour,
+   * assigned by certification and fill priority. A class's positionIds are the consoles
+   * it staffs (used for planning and bid previews). A console in no class acts as its
+   * own class.
+   *
+   * Field names kept for compatibility: employee.positionId / line.positionId mean the
+   * optional *preferred console* (only breaks ties in placement); employee.qualifications
+   * are the consoles they are certified on.
    */
   function jobClasses(state) {
     const posIds = new Set(state.positions.map((p) => p.id));
@@ -268,8 +303,38 @@
     return jobClasses(state).find((c) => c.positionIds.includes(positionId)) || null;
   }
   function jobClassById(state, id) { return jobClasses(state).find((c) => c.id === id) || null; }
+  /** An employee's job class (explicit; falls back to their preferred console's class for old data). */
+  function empClass(state, emp) {
+    if (!emp) return null;
+    return (emp.jobClassId && jobClassById(state, emp.jobClassId)) || (emp.positionId ? jobClassOf(state, emp.positionId) : null);
+  }
+  function lineClass(state, line) {
+    if (!line) return null;
+    if (line.jobClassId) { const c = jobClassById(state, line.jobClassId); if (c) return c; }
+    if (line.positionId) { const c = jobClassOf(state, line.positionId); if (c) return c; }
+    return line.employeeId ? empClass(state, state.employees.find((e) => e.id === line.employeeId)) : null;
+  }
+  function bidClass(state, bid) {
+    if (!bid) return null;
+    return (bid.jobClassId && jobClassById(state, bid.jobClassId)) || (bid.positionId ? jobClassOf(state, bid.positionId) : null);
+  }
   function classMembers(state, jc, includeInactive) {
-    return jc ? state.employees.filter((e) => jc.positionIds.includes(e.positionId) && (includeInactive || e.status !== 'inactive')) : [];
+    if (!jc) return [];
+    const all = jobClasses(state);
+    const byId = {}; for (const c of all) byId[c.id] = c;
+    return state.employees.filter((e) => {
+      if (!includeInactive && e.status === 'inactive') return false;
+      const c = (e.jobClassId && byId[e.jobClassId]) || (e.positionId ? all.find((x) => x.positionIds.includes(e.positionId)) : null);
+      return !!c && c.id === jc.id;
+    });
+  }
+  /** Consoles a class staffs; if none are linked, the consoles its members are certified on. */
+  function classConsoles(state, jc) {
+    if (!jc) return [];
+    if (jc.positionIds && jc.positionIds.length) return jc.positionIds.slice();
+    const set = new Set();
+    for (const e of classMembers(state, jc)) for (const q of certifications(e)) set.add(q);
+    return state.positions.map((p) => p.id).filter((id) => set.has(id));
   }
 
   const isPartTime = (e) => !!e && e.employmentType === 'part';
@@ -286,7 +351,9 @@
 
   function empName(e) { return e ? `${e.lastName}, ${e.firstName}` : '—'; }
   function countable(emp) { return !!emp && (emp.status === 'active' || (emp.status === 'trainee' && !!emp.soloCleared)); }
-  function qualifiedFor(emp, positionId) { return emp.positionId === positionId || (emp.qualifications || []).includes(positionId); }
+  /** Consoles a person is certified on (their preferred console is always one of them). */
+  function certifications(emp) { return emp ? [...new Set([emp.positionId, ...(emp.qualifications || [])].filter(Boolean))] : []; }
+  function qualifiedFor(emp, positionId) { return !!emp && certifications(emp).includes(positionId); }
 
   // -------------------------------------------------------------- schedule
   function lineActiveOn(line, day) {
@@ -321,7 +388,8 @@
         if (!tpl) continue;
         const start = d * DAY + parseTime(tpl.start);
         out.push({
-          employeeId: emp.id, positionId: emp.positionId, day: d, start,
+          // positionId here is only a preference for placement: line's, else the person's.
+          employeeId: emp.id, positionId: line.positionId || emp.positionId || certifications(emp)[0] || null, day: d, start,
           end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: line.id, kind: 'regular',
         });
       }
@@ -470,11 +538,12 @@
         if (ov <= 0) continue;
         let x = present[h].get(emp.id);
         if (!x) {
-          x = { id: emp.id, home: emp.positionId, quals: new Set([emp.positionId, ...(emp.qualifications || [])].filter((q) => posIds.has(q))), mins: 0, day: iv.day };
+          x = { id: emp.id, home: iv.positionId, quals: new Set(certifications(emp).filter((q) => posIds.has(q))), mins: 0, day: iv.day };
           present[h].set(emp.id, x);
         }
         x.mins += ov;
-        if (iv.kind === 'ot' && posIds.has(iv.positionId)) { x.quals.add(iv.positionId); if (iv.fillType !== 'trade') x.otPos = iv.positionId; }
+        // An OT assignment to a console lets them sit it; a trade doesn't grant a console.
+        if (iv.kind === 'ot' && iv.fillType !== 'trade' && posIds.has(iv.positionId)) { x.quals.add(iv.positionId); x.otPos = iv.positionId; }
         const pin = pins[emp.id + '|' + iv.day];
         if (pin && posIds.has(pin)) x.pin = pin;
       }
@@ -637,7 +706,7 @@
   }
 
   function avgRate(state, positionId) {
-    const list = state.employees.filter((e) => e.status !== 'inactive' && (!positionId || e.positionId === positionId) && +e.hourlyRate > 0);
+    const list = state.employees.filter((e) => e.status !== 'inactive' && (!positionId || qualifiedFor(e, positionId)) && +e.hourlyRate > 0);
     if (!list.length) return 0;
     return list.reduce((s, e) => s + +e.hourlyRate, 0) / list.length;
   }
@@ -687,7 +756,7 @@
   // ---------------------------------------------------------- staffing level
   /** Authorized vs. actual staffing, by job class. */
   function staffingSummary(state) {
-    return jobClasses(state).map((jc) => {
+    return jobClasses(state).filter((jc) => !jc.implicit || classMembers(state, jc).length || +jc.authorized).map((jc) => {
       const emps = classMembers(state, jc);
       const active = emps.filter((e) => e.status === 'active').length;
       const traineeSolo = emps.filter((e) => e.status === 'trainee' && e.soloCleared).length;
@@ -703,7 +772,7 @@
       const authorizedPart = +jc.authorizedPartTime || 0;
       const rates = emps.filter((e) => +e.hourlyRate > 0).map((e) => +e.hourlyRate);
       return {
-        jobClass: jc, position: { id: jc.id, name: jc.name }, positionIds: jc.positionIds,
+        jobClass: jc, position: { id: jc.id, name: jc.name }, positionIds: classConsoles(state, jc),
         authorized, current: emps.length, fullTime: full.length, partTime: part.length, partFTE,
         authorizedPart, partVacancies: Math.max(0, authorizedPart - part.length),
         active, traineeSolo, traineeNot, onLeave,
@@ -712,7 +781,8 @@
         pct: authorized ? full.length / authorized : 0,
         avgRate: rates.length ? rates.reduce((x, y) => x + y, 0) / rates.length : 0,
         minRate: rates.length ? Math.min(...rates) : 0,
-        requiredWeeklyHours: jc.positionIds.reduce((t, pid) => t + requiredWeeklyHours(state, pid), 0),
+        consoles: classConsoles(state, jc),
+        requiredWeeklyHours: classConsoles(state, jc).reduce((t, pid) => t + requiredWeeklyHours(state, pid), 0),
       };
     });
   }
@@ -803,7 +873,8 @@
     const slotHours = (slot.end - slot.start) / 60;
     const res = [];
     for (const emp of state.employees) {
-      if (!countable(emp) || !qualifiedFor(emp, slot.positionId)) continue;
+      if (!countable(emp)) continue;
+      if (opts.jobClassId ? (empClass(state, emp) || {}).id !== opts.jobClassId : !qualifiedFor(emp, slot.positionId)) continue;
       const ivs = (ivBy[emp.id] || []).filter((iv) => !opts.ignoreFillId || iv.fillId !== opts.ignoreFillId);
       const issues = [], warnings = [];
       if (ivs.some((iv) => iv.start < slot.end && iv.end > slot.start)) issues.push('Already working');
@@ -847,7 +918,6 @@
         if (weekHours > cap + 1e-6) issues.push(`Part-time cap: ${round2(weekHours)} of ${cap} h this week`);
         if (opts.order === 'mandatory') issues.push('Part-time: never forced');
       }
-      if (emp.positionId !== slot.positionId) warnings.push('Cross-trained');
       // incremental OT cost
       const h = empHours(ivs, lvBy[emp.id] || [], per.start, per.end);
       const before = otCalc(c, h, emp).otHours;
@@ -913,7 +983,7 @@
       counters[t] = (counters[t] || 0) + 1;
       lines.push({
         id: uid('ln'), name: `${o.prefix || (tpl ? tpl.code : 'L')} ${letter}-${counters[t]}`,
-        positionId: o.positionId, shiftTemplateId: o.shiftTemplateId, patternId: o.patternId,
+        jobClassId: o.jobClassId || null, positionId: o.positionId || null, shiftTemplateId: o.shiftTemplateId, patternId: o.patternId,
         anchorDate: fmtDate(anchor + offset), effectiveFrom: o.effectiveFrom || o.anchorDate, effectiveTo: null, employeeId: null,
       });
     }
@@ -923,7 +993,7 @@
   function bidOrder(state, bid) {
     const sen = (e) => parseDate(e.seniorityDate || e.hireDate || '2000-01-01');
     // Everyone in the job class bids together (e.g. law and fire/EMS dispatchers).
-    let list = classMembers(state, jobClassOf(state, bid.positionId));
+    let list = classMembers(state, bidClass(state, bid));
     list.sort((a, b) => sen(a) - sen(b) || String(a.lastName).localeCompare(b.lastName));
     if (Array.isArray(bid.order) && bid.order.length) {
       const pos = {}; bid.order.forEach((id, i) => { pos[id] = i; });
@@ -939,8 +1009,8 @@
 
   function applyBid(state, bid) {
     const eff = parseDate(bid.effectiveDate);
-    const jc = jobClassOf(state, bid.positionId);
-    const inClass = (l) => (jc ? jc.positionIds.includes(l.positionId) : l.positionId === bid.positionId);
+    const jc = bidClass(state, bid);
+    const inClass = (l) => !!jc && (lineClass(state, l) || {}).id === jc.id;
     state.lines = state.lines.filter((l) => !(inClass(l) && parseDate(l.effectiveFrom) >= eff));
     for (const l of state.lines) {
       if (!inClass(l)) continue;
@@ -949,29 +1019,31 @@
     const byLine = {};
     for (const [empId, lineId] of Object.entries(bid.picks || {})) byLine[lineId] = empId;
     for (const bl of bid.lines) {
-      state.lines.push(Object.assign({}, bl, { id: uid('ln'), effectiveFrom: bid.effectiveDate, effectiveTo: null, employeeId: byLine[bl.id] || null }));
+      state.lines.push(Object.assign({}, bl, { id: uid('ln'), jobClassId: jc ? jc.id : bl.jobClassId, effectiveFrom: bid.effectiveDate, effectiveTo: null, employeeId: byLine[bl.id] || null }));
     }
     bid.status = 'applied';
     bid.appliedAt = new Date().toISOString();
   }
 
   /**
-   * Coverage a set of lines would produce if every line were filled, with all
-   * other positions' current lines unchanged and no leave.
+   * Coverage a set of lines would produce if every line were filled, with everyone
+   * else's lines unchanged and no leave. The job class is replaced by one person per
+   * line, certified on all of the class's consoles (a cross-trained pool).
    */
-  function previewLines(state, positionId, lines, fromDay, days) {
-    // The whole job class is replaced by one person per line, certified on all of the
-    // class's consoles (a cross-trained pool), so the preview shows what the lines can cover.
-    const jc = jobClassOf(state, positionId);
-    const pids = jc ? jc.positionIds : [positionId];
-    const synthEmps = lines.map((l, i) => ({ id: `__ln${i}`, firstName: '', lastName: l.name, positionId: l.positionId || positionId, qualifications: pids.slice(), status: 'active' }));
+  function previewLines(state, jobClassId, lines, fromDay, days) {
+    const jc = jobClassById(state, jobClassId) || jobClassOf(state, jobClassId);
+    const pids = classConsoles(state, jc);
+    const members = new Set(classMembers(state, jc, true).map((e) => e.id));
+    const synthEmps = lines.map((l, i) => ({ id: `__ln${i}`, firstName: '', lastName: l.name, jobClassId: jc ? jc.id : null, positionId: l.positionId || null, qualifications: pids.slice(), status: 'active' }));
     const temp = Object.assign({}, state, {
-      employees: state.employees.filter((e) => !pids.includes(e.positionId)).concat(synthEmps),
-      lines: state.lines.filter((l) => !pids.includes(l.positionId) && l.employeeId)
+      employees: state.employees.filter((e) => !members.has(e.id)).concat(synthEmps),
+      lines: state.lines.filter((l) => l.employeeId && !members.has(l.employeeId) && !(jc && (lineClass(state, l) || {}).id === jc.id))
         .concat(lines.map((l, i) => Object.assign({}, l, { employeeId: `__ln${i}`, effectiveFrom: fmtDate(Math.min(fromDay, parseDate(l.effectiveFrom || fmtDate(fromDay)))), effectiveTo: null }))),
       exceptions: [], fills: [],
     });
-    return openings(temp, fromDay, fromDay + days - 1);
+    const op = openings(temp, fromDay, fromDay + days - 1);
+    op.consoles = pids;
+    return op;
   }
 
   // ----------------------------------------------------------- sync & privacy
@@ -1034,14 +1106,14 @@
   function plannedLeaveOn(state, day, jobClassId, extra = []) {
     const ix = index(state);
     const jc = jobClassById(state, jobClassId);
-    const pids = jc ? jc.positionIds : [jobClassId];
+    const inClass = new Set(classMembers(state, jc, true).map((e) => e.id));
     const who = new Set();
     for (const e of state.exceptions.concat(extra)) {
       if (!PLANNED_LEAVE.includes(e.type) || !(e.status === 'approved' || e.status === 'pending')) continue;
       const [a, b] = exceptionRange(e);
       if (day < a || day > b) continue;
       const emp = ix.emp[e.employeeId];
-      if (emp && pids.includes(emp.positionId)) who.add(emp.id);
+      if (emp && inClass.has(emp.id)) who.add(emp.id);
     }
     return who;
   }
@@ -1050,7 +1122,7 @@
   function overLeaveLimit(state, exc) {
     if (!PLANNED_LEAVE.includes(exc.type)) return [];
     const emp = state.employees.find((e) => e.id === exc.employeeId);
-    const jc = emp ? jobClassOf(state, emp.positionId) : null;
+    const jc = empClass(state, emp);
     const lim = jc ? jc.maxOffPerDay : null;
     if (lim == null || lim === '') return [];
     const [a, b] = exceptionRange(exc);
@@ -1068,7 +1140,7 @@
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 3 });
+    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 4 });
     // Minimums are set per discipline.
     s.positions = [
       { id: 'pos_ct', name: 'Call-taker', isConsole: true, priority: 4 },
@@ -1109,8 +1181,10 @@
     };
 
     const anchor = parseDate('2026-01-04');
+    // Lines belong to a job class; no console, so nobody is tied to one by their line.
+    const classOfPos = { pos_ct: 'jc_ct', pos_law: 'jc_tc', pos_fire: 'jc_tc', pos_sup: 'jc_sup' };
     const line = (positionId, tplId, patId, offset, name, emp) => s.lines.push({
-      id: uid('ln'), name, positionId, shiftTemplateId: tplId, patternId: patId,
+      id: uid('ln'), name, jobClassId: classOfPos[positionId], positionId: null, shiftTemplateId: tplId, patternId: patId,
       anchorDate: fmtDate(anchor + offset), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: emp ? emp.id : null,
     });
     const shiftCode = { t_d8: 'D', t_e8: 'E', t_m8: 'M', t_p10: 'P10' };
@@ -1131,25 +1205,32 @@
       ['pos_sup', 'SUP', 't_m8', 'p_52', [0], ['pos_ct', 'pos_law', 'pos_fire']],
     ];
     const byPos = { pos_ct: [], pos_law: [], pos_fire: [], pos_sup: [] };
+    const lineNo = {};
     for (const [pos, pre, tpl, pat, offs, quals] of plan) {
-      offs.forEach((off, k) => {
-        const e = mk(pos, { qualifications: quals.slice() });
+      offs.forEach((off) => {
+        // positionId = preferred console; certifications always include it.
+        const e = mk(pos, { jobClassId: classOfPos[pos], qualifications: [pos, ...quals] });
         byPos[pos].push(e);
-        line(pos, tpl, pat, off, `${pre} ${shiftCode[tpl]}-${k + 1}`, e);
+        const prefix = classOfPos[pos] === 'jc_tc' ? 'TC' : pre;
+        const key = prefix + shiftCode[tpl];
+        lineNo[key] = (lineNo[key] || 0) + 1;
+        line(pos, tpl, pat, off, `${prefix} ${shiftCode[tpl]}-${lineNo[key]}`, e);
       });
     }
     const ct = byPos.pos_ct, law = byPos.pos_law, fire = byPos.pos_fire, sups = byPos.pos_sup;
-    // Senior call-takers cross-trained on law; a couple of law dispatchers on fire.
+    // Most telecommunicators work both law and fire/EMS; two are still law-only or fire-only.
+    for (const e of law) if (e !== law[3]) e.qualifications.push('pos_fire');
+    for (const e of fire) if (e !== fire[2]) e.qualifications.push('pos_law');
+    // Two senior call-takers are also certified on law.
     ct[4].qualifications.push('pos_law'); ct[9].qualifications.push('pos_law');
-    law[2].qualifications.push('pos_fire'); law[7].qualifications.push('pos_fire');
     // Trainees: one call-taker still with a CTO (doesn't count), one law dispatcher solo-cleared.
     Object.assign(ct[1], { status: 'trainee', soloCleared: false, hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
     Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
     // Part-time staff: straight time, capped hours. Two call-takers on part-time lines
     // covering the weekend peak, one law dispatcher who only picks up open shifts.
-    const ptCt1 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
-    const ptCt2 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
-    const ptLaw = mk('pos_law', { employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
+    const ptCt1 = mk('pos_ct', { jobClassId: 'jc_ct', qualifications: ['pos_ct'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
+    const ptCt2 = mk('pos_ct', { jobClassId: 'jc_ct', qualifications: ['pos_ct'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
+    const ptLaw = mk('pos_law', { jobClassId: 'jc_tc', employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_law', 'pos_fire', 'pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
     line('pos_ct', 't_e8', 'p_pt2', 5, 'CT PT-1', ptCt1);
     line('pos_ct', 't_d8', 'p_pt3', 4, 'CT PT-2', ptCt2);
     // Vacant lines on the books (authorized but unfilled).
@@ -1225,7 +1306,7 @@
 
   const api = {
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
-    jobClasses, jobClassOf, jobClassById, classMembers,
+    jobClasses, jobClassOf, jobClassById, classMembers, classConsoles, empClass, lineClass, bidClass, certifications,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,

@@ -33,24 +33,25 @@
       const days = [];
       for (let d = from; d <= to; d++) days.push(d);
 
-      // Group employees by position then by their primary shift.
+      // Group employees by job class, then by their primary shift.
       const lineOf = (emp) => st.lines.find((l) => l.employeeId === emp.id && P.lineActiveOn(l, Math.max(from, Math.min(to, today))))
         || st.lines.find((l) => l.employeeId === emp.id && P.lineActiveOn(l, from));
-      const emps = st.employees.filter((e) => e.status !== 'inactive' && (u.pos === 'all' || e.positionId === u.pos));
-      const posOrder = {}; st.positions.forEach((p, i) => { posOrder[p.id] = i; });
+      const classes = P.jobClasses(st);
+      const clsOrder = {}; classes.forEach((c, i) => { clsOrder[c.id] = i; });
+      const clsId = (e) => (P.empClass(st, e) || {}).id || '';
+      const emps = st.employees.filter((e) => e.status !== 'inactive' && (u.pos === 'all' || clsId(e) === u.pos));
       const rows = emps.map((e) => {
         const ln = lineOf(e);
         const tpl = ln ? ix.tpl[ln.shiftTemplateId] : null;
-        return { e, ln, tpl, key: tpl ? P.parseTime(tpl.start) : 9999 };
-      }).sort((a, b) => posOrder[a.e.positionId] - posOrder[b.e.positionId] || a.key - b.key || String(a.ln ? a.ln.name : 'zz').localeCompare(b.ln ? b.ln.name : 'zz'));
+        return { e, cls: clsId(e), ln, tpl, key: tpl ? P.parseTime(tpl.start) : 9999 };
+      }).sort((a, b) => (clsOrder[a.cls] ?? 99) - (clsOrder[b.cls] ?? 99) || a.key - b.key || String(a.ln ? a.ln.name : 'zz').localeCompare(b.ln ? b.ln.name : 'zz'));
 
       const head = `<tr><th class="name">Employee / line</th>${days.map((d) => `<th class="${d === today ? 'today' : ''} ${[0, 6].includes(P.dow(d)) ? 'wknd' : ''}">${P.DOW[P.dow(d)]}<br>${P.fmtDate(d).slice(5).replace('-', '/')}</th>`).join('')}</tr>`;
-      let body = '', lastPos = null;
+      let body = '', lastCls = null;
       for (const r of rows) {
-        if (r.e.positionId !== lastPos) {
-          if (lastPos) body += sumRow(lastPos);
-          lastPos = r.e.positionId;
-          body += `<tr class="group"><td colspan="${days.length + 1}">${esc(App.posName(lastPos))}</td></tr>`;
+        if (r.cls !== lastCls) {
+          lastCls = r.cls;
+          body += `<tr class="group"><td colspan="${days.length + 1}">${esc((classes.find((c) => c.id === lastCls) || {}).name || 'No job class')}</td></tr>`;
         }
         const flags = [];
         if (r.e.status === 'trainee') flags.push(`<span class="badge ${r.e.soloCleared ? 'info' : 'warn'}" title="${r.e.soloCleared ? 'Solo cleared' : 'With CTO — not counted'}">T</span>`);
@@ -62,11 +63,15 @@
         }
         body += '</tr>';
       }
-      if (lastPos) body += sumRow(lastPos);
+      // Openings are per console: one row per console under the grid.
+      if (App.isSup() && rows.length) {
+        body += `<tr class="group"><td colspan="${days.length + 1}">Uncovered hours vs minimum, by console</td></tr>`;
+        for (const p of st.positions) body += sumRow(p.id);
+      }
 
       function sumRow(pid) {
         if (!App.isSup()) return '';
-        return `<tr class="sum"><td class="name">Uncovered hrs vs minimum</td>${days.map((d) => {
+        return `<tr class="sum"><td class="name">${esc(App.posName(pid))}</td>${days.map((d) => {
           const v = shortBy[pid + '|' + d] || 0;
           return `<td>${v ? `<a href="#" data-action="cov-day" data-day="${d}" class="badge bad">${hrs(v)}</a>` : '<span class="muted">✓</span>'}</td>`;
         }).join('')}</tr>`;
@@ -80,7 +85,7 @@
           <button class="btn" data-action="sched-move" data-dir="1">▶</button>
           <input type="date" value="${P.fmtDate(from)}" data-change="sched-date">
           <select data-change="sched-days">${App.opts([{ id: 7, name: '1 week' }, { id: 14, name: '2 weeks' }, { id: 28, name: '4 weeks' }], u.days)}</select>
-          <select data-change="sched-pos"><option value="all">All positions</option>${App.opts(st.positions, u.pos)}</select>
+          <select data-change="sched-pos"><option value="all">All job classes</option>${App.opts(P.jobClasses(st), u.pos)}</select>
           <button class="btn" onclick="window.print()">Print</button>
         </div></div>
       <div class="panel"><div class="legend" style="margin-bottom:8px">
@@ -147,7 +152,7 @@
     const statusBadge = (s) => `<span class="badge ${s === 'approved' ? 'ok' : s === 'pending' ? 'warn' : 'bad'}">${s}</span>`;
     return `
       <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · line ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
-        · ${esc(App.posName(emp.positionId))}</p>
+        · ${esc((P.empClass(st, emp) || {}).name || 'no job class')} · certified: ${P.certifications(emp).map((q) => esc(App.posName(q))).join(', ') || 'none'}</p>
       ${excs.length || fills.length ? `<table><tbody>
         ${excs.map((e) => `<tr><td>${esc(App.excType(e.type).label)} ${statusBadge(e.status)}<div class="small muted">${e.endDate ? `${e.date} → ${e.endDate}` : e.date}${e.start ? ` · ${e.start} for ${e.hours}h` : ' · full shift'}${e.note ? ' · ' + esc(e.note) : ''}</div></td>
           <td class="nowrap" style="text-align:right">${e.status === 'pending' ? `<button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="approved">Approve</button> <button class="btn sm" data-action="exc-status" data-id="${e.id}" data-status="denied">Deny</button> ` : ''}<button class="btn sm danger" data-action="exc-del" data-id="${e.id}">Remove</button></td></tr>`).join('')}
@@ -173,7 +178,7 @@
         <div class="form-grid">
           <div class="field"><label>Start</label><input type="time" name="otStart" value="${reg ? P.timeStr(reg.end) : '06:00'}"></div>
           <div class="field"><label>Hours</label><input type="number" step="0.25" min="0.25" name="otHours" value="${reg ? 4 : 12}"></div>
-          <div class="field"><label>Covering position</label><select name="otPos">${App.opts(st.positions.filter((p) => P.qualifiedFor(emp, p.id)), emp.positionId)}</select></div>
+          <div class="field"><label>Covering console</label><select name="otPos">${App.opts(st.positions.filter((p) => P.qualifiedFor(emp, p.id)), emp.positionId)}</select></div>
           <div class="field"><label>Type</label><select name="otType">${App.opts(P.FILL_TYPES, reg ? 'holdover' : 'voluntary', (t) => t.label)}</select></div>
           <div class="field"><label>Reason</label><select name="otReason"><option value="vacancy">Vacancy / structural</option>${App.opts(P.EXCEPTION_TYPES, '', (t) => t.label)}<option value="event">Special event / weather</option></select></div>
         </div>
@@ -192,7 +197,7 @@
     if (exc.status === 'approved') {
       const emp = App.emp(exc.employeeId);
       const [a, b] = P.exceptionRange(exc);
-      const slots = P.openings(S(), a, b + 1).slots.filter((x) => x.positionId === emp.positionId && x.causes.some((c) => c.exceptionId === exc.id) && x.end > P.nowAbs());
+      const slots = P.openings(S(), a, b + 1).slots.filter((x) => x.causes.some((c) => c.exceptionId === exc.id) && x.end > P.nowAbs());
       if (slots.length) {
         App.toast(`Creates ${slots.length} opening(s) below minimum`, true);
         App.openFill(slots[0]);

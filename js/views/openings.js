@@ -23,12 +23,12 @@
         <div class="toolbar"><select data-change="open-days">${App.opts([{ id: 7, name: 'Next 7 days' }, { id: 14, name: 'Next 14 days' }, { id: 28, name: 'Next 28 days' }, { id: 56, name: 'Next 8 weeks' }], ui.open.days)}</select></div></div>
       <div class="kpis">
         ${App.kpi('Open slots', slots.length, `${hrs(slots.reduce((s, x) => s + x.hours, 0))} person-hours`, slots.length ? 'bad' : 'ok')}
-        ${App.kpi('Cost if filled with OT', money(totalCost), 'at average position rate × OT multiplier')}
+        ${App.kpi('Cost if filled with OT', money(totalCost), 'at the average rate of staff certified on that console × OT multiplier')}
         ${Object.entries(byCause).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => App.kpi(App.reasonLabel(k), hrs(v) + ' h', 'open hours by cause')).join('')}
       </div>
       <div class="grid">
         <div class="panel"><h2>Unfilled openings</h2>
-        ${slots.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Position</th><th class="num">Hours</th><th>Need</th><th>Cause</th><th class="num">Est. OT cost</th><th></th></tr></thead><tbody>
+        ${slots.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Console</th><th class="num">Hours</th><th>Need</th><th>Cause</th><th class="num">Est. OT cost</th><th></th></tr></thead><tbody>
           ${slots.map((s) => `<tr><td class="nowrap">${App.slotTime(s)}</td><td>${esc(App.posName(s.positionId))}</td><td class="num">${hrs(s.hours)}</td>
             <td>${s.level > 1 ? `<span class="badge bad">${s.level}${['', 'st', 'nd', 'rd'][s.level] || 'th'} person</span>` : '<span class="badge bad">1 person</span>'}</td>
             <td class="small">${s.causes.length ? s.causes.map((c) => `${esc(P.empName(App.emp(c.employeeId)))} <span class="badge">${esc(App.excType(c.type).abbr)}</span>`).join(' ') : '<span class="muted">Structural — vacancy, trainee or vacant line</span>'}</td>
@@ -76,7 +76,7 @@
       return `<tr><td class="nowrap">${App.slotTime(slot)}</td><td>${esc(App.posName(po.positionId))}</td><td class="num">${hrs(po.hours)}</td><td>${po.mode === 'first' ? 'first-come' : 'OT list'}</td><td>${App.statusBadge(po.status)}</td><td>${vols}</td>
         <td>${po.status === 'open' ? `<button class="btn sm danger" data-action="po-cancel" data-id="${po.id}">Cancel</button>` : ''}</td></tr>`;
     }).join('');
-    return `<div class="panel"><h2>Posted for volunteers</h2><div class="table-wrap"><table><thead><tr><th>When</th><th>Position</th><th class="num">Hrs</th><th>Award</th><th>Status</th><th>Volunteers (OT-list order)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    return `<div class="panel"><h2>Posted for volunteers</h2><div class="table-wrap"><table><thead><tr><th>When</th><th>Console</th><th class="num">Hrs</th><th>Award</th><th>Status</th><th>Volunteers (OT-list order)</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
   }
   function tradesPanel(st) {
     const list = st.trades.filter((t) => t.status === 'accepted');
@@ -101,7 +101,7 @@
     const maxH = +S().center.maxShiftHours || 16;
     F = { slot, start: slot.start, hours: Math.min(slot.hours, Math.max(4, Math.min(12, maxH))), order: 'voluntary', showAll: false };
     if (slot.hours <= 12) F.hours = slot.hours;
-    App.modal({ title: `Fill opening — ${App.posName(slot.positionId)}`, wide: true, body: fillBody, footer: '<button class="btn" data-action="modal-close">Close</button>' });
+    App.modal({ title: `Fill opening — ${App.posName(slot.positionId)} console`, wide: true, body: fillBody, footer: '<button class="btn" data-action="modal-close">Close</button>' });
   };
 
   function fillBody() {
@@ -124,7 +124,7 @@
       <p class="small muted">${F.order === 'voluntary' ? (st.center.partTimeFirst !== false ? 'Voluntary order: part-timers at straight time first, then holdover / early-in, then fewest OT hours this fiscal year, then seniority.' : 'Voluntary order: holdover / early-in first, then fewest OT hours this fiscal year, then seniority.') : (st.center.forceOrderBasis === 'lastForced' ? 'Force order: longest since last forced first, then least senior.' : 'Force order: longest since last overtime worked first, then least senior.')}
         Hard rules: not already working, not on leave, ≥ ${st.center.minRestHours} h rest, ≤ ${st.center.maxShiftHours} h continuous.</p>
       <div class="table-wrap" style="max-height:48vh"><table><thead><tr><th>#</th><th>Employee</th><th>Fit</th><th class="num">Hrs last 7d</th><th class="num">OT hrs FY</th><th>${st.center.forceOrderBasis === 'lastForced' ? 'Last forced' : 'Last OT'}</th><th class="num">OT hrs added</th><th class="num">Est. cost</th><th></th></tr></thead><tbody>
-      ${shown.map((c, i) => `<tr class="${c.eligible ? '' : 'dim'}"><td>${i + 1}</td><td>${esc(P.empName(c.emp))} <span class="small muted">#${esc(c.emp.badge || '')} · ${esc(App.posName(c.emp.positionId))}</span></td>
+      ${shown.map((c, i) => `<tr class="${c.eligible ? '' : 'dim'}"><td>${i + 1}</td><td>${esc(P.empName(c.emp))} <span class="small muted">#${esc(c.emp.badge || '')} · ${esc((P.empClass(st, c.emp) || {}).name || 'no job class')}</span></td>
         <td class="small">${c.partTime ? `<span class="badge ok" title="Part-time: straight time, capped at ${c.cap} h/week">part-time ${App.hrs(c.weekHours)}/${c.cap} h</span> ` : ''}${c.holdover ? '<span class="badge info">holdover</span> ' : ''}${c.earlyIn ? '<span class="badge info">early-in</span> ' : ''}${c.issues.map((x) => `<span class="badge bad">${esc(x)}</span>`).join(' ')} ${c.warnings.map((x) => `<span class="badge warn">${esc(x)}</span>`).join(' ')}</td>
         <td class="num">${hrs(c.hours7)}</td><td class="num">${hrs(c.otFyHours)}</td><td class="nowrap">${(st.center.forceOrderBasis === 'lastForced' ? c.lastForced : c.lastOT) || '<span class="muted">never</span>'}${c.forcedCount ? ` <span class="small muted">(${c.forcedCount} forced FY)</span>` : ''}</td>
         <td class="num">${hrs(c.otHours)}</td><td class="num">${money(c.cost)}</td>

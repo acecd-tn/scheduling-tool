@@ -40,7 +40,7 @@
         const list = onDuty.filter((iv) => (where[iv.employeeId] || iv.positionId) === p.id && !seen.has(iv.employeeId) && seen.add(iv.employeeId)).map((iv) => {
           const e = App.emp(iv.employeeId);
           const tag = iv.kind === 'ot' ? ' <span class="badge ok">OT</span>' : '';
-          const tr = (e && !P.countable(e) ? ' <span class="badge warn" title="Not counted toward minimums">trainee</span>' : '') + (e && e.positionId !== p.id ? ` <span class="badge info" title="Home: ${esc(App.posName(e.positionId))}">cross</span>` : '');
+          const tr = (e && !P.countable(e) ? ' <span class="badge warn" title="Not counted toward minimums">trainee</span>' : '') + (e ? ` <span class="small muted">${esc((P.empClass(S, e) || {}).name || '')}</span>` : '');
           return `<tr><td>${esc(P.empName(e))}${tag}${tr}</td><td class="nowrap">${P.mil(iv.start)}–${P.mil(iv.end)}</td></tr>`;
         }).join('');
         return `<tr class="group"><td colspan="2"><b>${esc(p.name)}</b></td></tr>${list || '<tr><td colspan="2" class="muted">Nobody on duty</td></tr>'}`;
@@ -71,7 +71,7 @@
           <p class="small muted">Trainees: solo-cleared / still with CTO. Only active staff and solo-cleared trainees count toward console minimums.</p>
         </div>
         <div class="panel"><h2>Open shifts — next 7 days <a class="btn sm" href="#/openings">All openings</a></h2>
-          ${upcoming.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Position</th><th class="num">Hrs</th><th>Cause</th><th></th></tr></thead><tbody>
+          ${upcoming.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Console</th><th class="num">Hrs</th><th>Cause</th><th></th></tr></thead><tbody>
           ${upcoming.slice(0, 10).map((s) => `<tr><td class="nowrap">${App.slotTime(s)}</td><td>${esc(App.posName(s.positionId))}${s.level > 1 ? ` <span class="badge bad">#${s.level}</span>` : ''}</td><td class="num">${hrs(s.hours)}</td>
             <td class="small">${s.causes.length ? s.causes.map((c) => esc(`${P.empName(App.emp(c.employeeId))} (${App.excType(c.type).abbr})`)).join(', ') : '<span class="muted">Structural / vacancy</span>'}</td>
             <td><button class="btn sm primary" data-action="fill-slot" data-slot="${esc(s.id)}" data-from="${today}" data-to="${today + 6}">Fill</button></td></tr>`).join('')}
@@ -104,7 +104,7 @@
     App.commit((s) => s.exceptions.push({ id: P.uid('ex'), employeeId, date: P.fmtDate(d), endDate: null, start: null, hours: null, type: f.type, status: 'approved', note: f.note, createdAt: new Date().toISOString() }), 'Call-out recorded');
     App.closeModal();
     const emp = App.emp(employeeId);
-    const slots = P.openings(S(), d, d + 1).slots.filter((x) => x.positionId === emp.positionId && x.end > P.nowAbs());
+    const slots = P.openings(S(), d, d + 1).slots.filter((x) => x.end > P.nowAbs() && x.causes.some((c) => c.employeeId === employeeId));
     if (slots.length) App.openFill(slots[0]);
     else App.toast('Minimums still covered — no backfill needed');
   };

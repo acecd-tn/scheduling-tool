@@ -9,7 +9,7 @@
       const list = st.vacationBids.filter((v) => App.isSup() || v.status !== 'draft');
       if (!ui.vac.id || !list.some((v) => v.id === ui.vac.id)) ui.vac.id = (list.find((v) => v.status === 'open') || list[list.length - 1] || {}).id || null;
       const vb = list.find((v) => v.id === ui.vac.id);
-      return `<div class="page-head"><div><h1>Vacation bid</h1><p>Seniority-order vacation picks with a daily limit per discipline. Each pick is approved the moment it's made.</p></div>
+      return `<div class="page-head"><div><h1>Vacation bid</h1><p>Seniority-order vacation picks with a daily limit per job class. Each pick is approved the moment it's made.</p></div>
         <div class="toolbar">${list.length ? `<select data-change="vac-sel">${App.opts(list, ui.vac.id, (v) => `${v.name} (${v.status})`)}</select>` : ''}${App.isSup() ? '<button class="btn primary" data-action="vac-new">+ New vacation bid</button>' : ''}</div></div>
         ${vb ? detail(st, vb, ui) : `<div class="panel empty">${App.isSup() ? 'No vacation bids yet. Create one for the coming year.' : 'No vacation bid is open.'}</div>`}`;
     },
@@ -26,16 +26,16 @@
     // Limits and the calendar are per job class.
     const classIdsInBid = vb.jobClassIds || [];
     const positions = P.jobClasses(st).filter((c) => !classIdsInBid.length || classIdsInBid.includes(c.id));
-    const myClass = App.emp(me) ? P.jobClassOf(st, App.emp(me).positionId) : null;
+    const myClass = App.emp(me) ? P.empClass(st, App.emp(me)) : null;
     if (!ui.vac.pos || !positions.some((p) => p.id === ui.vac.pos)) ui.vac.pos = (myClass && positions.some((p) => p.id === myClass.id) ? myClass.id : (positions[0] || {}).id);
-    const rows = order.map((e, i) => `<tr class="${turn && turn.employee.id === e.id ? 'bidder-now' : ''}"><td>${i + 1}</td><td>${esc(P.empName(e))}</td><td class="small">${esc((P.jobClassOf(st, e.positionId) || {}).name || '')}</td>
+    const rows = order.map((e, i) => `<tr class="${turn && turn.employee.id === e.id ? 'bidder-now' : ''}"><td>${i + 1}</td><td>${esc(P.empName(e))}</td><td class="small">${esc((P.empClass(st, e) || {}).name || '')}</td>
       ${Array.from({ length: rounds }, (_, r) => { const pk = picksOf(e.id, r + 1); return `<td class="small nowrap">${pk ? (pk.passed ? '<span class="muted">pass</span>' : `${pk.from.slice(5)}${pk.to !== pk.from ? '→' + pk.to.slice(5) : ''}`) : turn && turn.employee.id === e.id && turn.round === r + 1 ? '<span class="badge info">up now</span>' : ''}</td>`; }).join('')}</tr>`).join('');
     const capOf = (pid) => vb.caps && vb.caps[pid] !== '' && vb.caps[pid] != null ? +vb.caps[pid] : null;
     const pickForm = canPick ? `<div class="panel" style="margin-bottom:14px"><h2>${myTurn ? 'Your turn' : `Pick for ${esc(P.empName(turn.employee))}`} — round ${turn.round}</h2>
       <div class="form-grid"><div class="field"><label>First day off</label><input type="date" id="vac-from" min="${esc(vb.from)}" max="${esc(vb.to)}"></div>
       <div class="field"><label>Last day off</label><input type="date" id="vac-to" min="${esc(vb.from)}" max="${esc(vb.to)}"></div>
       <div class="field"><label>&nbsp;</label><div><button class="btn primary" data-action="vac-pick">Pick</button> <button class="btn" data-action="vac-pass">Pass this round</button></div></div></div>
-      <p class="small muted">Up to ${vb.maxDaysPerPick || '∞'} ${vb.pickUnit === 'calendar' ? 'calendar days' : 'scheduled workdays'} per pick. Red days on the calendar are already at the ${esc((P.jobClassOf(st, turn.employee.positionId) || {}).name || '')} limit.</p></div>` : '';
+      <p class="small muted">Up to ${vb.maxDaysPerPick || '∞'} ${vb.pickUnit === 'calendar' ? 'calendar days' : 'scheduled workdays'} per pick. Red days on the calendar are already at the ${esc((P.empClass(st, turn.employee) || {}).name || '')} limit.</p></div>` : '';
     const status = turn ? (myTurn ? '' : `<div class="callout">Now picking: <b>${esc(P.empName(turn.employee))}</b> (round ${turn.round}).${me && order.some((e) => e.id === me) ? ` You are #${order.findIndex((e) => e.id === me) + 1} in order.` : ''}</div>`) : `<div class="callout">${vb.status === 'draft' ? 'Draft — not open yet.' : 'This bid is closed.'}</div>`;
     return `${status}${pickForm}
       ${App.isSup() ? `<div class="toolbar" style="margin-bottom:12px">${vb.status === 'draft' ? '<button class="btn primary" data-action="vac-open">Open bidding & notify staff</button>' : ''}${vb.status === 'open' ? '<button class="btn" data-action="vac-close">Close</button>' : ''}${(vb.picks || []).length ? '<button class="btn" data-action="vac-undo">Undo last pick</button>' : ''}<button class="btn danger" data-action="vac-del">Delete</button>

@@ -1,6 +1,6 @@
 # PSAP Scheduler
 
-Scheduling for emergency communications centers: 24x7 console coverage by discipline,
+Scheduling for emergency communications centers: 24x7 console coverage,
 authorized vs. current staffing, call-outs and openings, real-time and predicted
 overtime, shift trades, OT sign-up, shift bids and vacation bids. It supports 8-, 10-
 and 12-hour schedules or a mix, all built for non-exempt staff on a **7-day / 40-hour**
@@ -65,16 +65,16 @@ and after. That matters for grievances and payroll disputes.
 
 ## Features
 
-- **Job classes and consoles.** A *job class* (e.g. Telecommunicator, Supervisor) holds
-  the budget: authorized full-time and part-time positions, vacancies, the daily leave
-  limit, and who bids together. A *console* (e.g. Law, Fire/EMS) holds the hourly
-  minimums and fill priority. One job class can staff several consoles; a person's
-  job class follows from their home console, and their certifications decide which
-  consoles they can sit.
-- **Coverage by discipline.** Minimum staffing per hour and day for each discipline
-  (call-taker, law, fire/EMS, supervisor), with special-day overrides. With
-  *console assignment* on, cross-trained people are placed on whatever console needs
-  them each hour. When short, disciplines are filled in *fill priority* order.
+- **Job classes and consoles.** A person's position is their *job class* (e.g.
+  Telecommunicator, Supervisor). Job classes hold authorized full-time and part-time
+  positions, vacancies, the daily leave limit, lines and bids. *Consoles* (e.g. Law,
+  Fire/EMS) are only where people sit each hour. Each person has a job class, the
+  consoles they're certified on, and optionally a preferred console that only breaks
+  ties. Lines belong to a job class, so nobody is tied to a console by their line.
+- **Console coverage.** Minimum staffing per hour and day for each console, with
+  special-day overrides. Each hour, the people on duty are placed on consoles by
+  certification, filling consoles in *fill priority* order. Openings are per console;
+  anyone in any job class who is certified on that console can fill one.
   The **Consoles** page prints the assignment sheet; supervisors can pin a person to
   one console for a shift.
 - **Part-time staff.** Marked part-time with a weekly hour cap (default 32). Extra
@@ -105,12 +105,12 @@ and after. That matters for grievances and payroll disputes.
 - **Rotations.** The built-in patterns are all exactly 40 h every week: 5×8, 4×10,
   2×12 + 2×8 (days or nights), and 3×12 + 4. Any custom line that would build in OT
   is flagged.
-- **Shift bid.** Generate lines, bid in seniority order (employees pick on their own
-  turn and are notified when it arrives), preview coverage, then apply on an
-  effective date.
+- **Shift bid.** Per job class: generate the class's lines, bid in seniority order (employees pick on their own
+  turn and are notified when it arrives), preview coverage across all consoles the
+  class staffs, then apply on an effective date.
 - **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
-  (or calendar days), and a daily limit per discipline (default 1). Each pick is
-  approved immediately; a calendar shows full days. The same per-discipline limit
+  (or calendar days), and a daily limit per job class (default 1). Each pick is
+  approved immediately; a calendar shows full days. The same per-job-class limit
   (Staff → Max off / day) flags ordinary time-off requests that would exceed it.
 - **Planner.** FTE needed and relief factor per schedule type against your minimums.
 

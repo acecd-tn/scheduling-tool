@@ -462,7 +462,7 @@ function bootstrap() {
         let un = (e.firstName[0] + e.lastName).toLowerCase().replace(/[^a-z0-9]/g, '');
         while (used.has(un)) un += '1';
         used.add(un);
-        q.addUser.run(P.uid('usr'), un, hashPassword(demoPw), e.positionId === 'pos_sup' ? 'supervisor' : 'employee', e.id, 0, new Date().toISOString());
+        q.addUser.run(P.uid('usr'), un, hashPassword(demoPw), (e.jobClassId === 'jc_sup' || e.positionId === 'pos_sup') ? 'supervisor' : 'employee', e.id, 0, new Date().toISOString());
       }
       const sup = state.employees.find((e) => e.positionId === 'pos_sup');
       const emp = state.employees.find((e) => e.positionId === 'pos_law' && e.status === 'active');

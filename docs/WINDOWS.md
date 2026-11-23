@@ -230,7 +230,9 @@ HTTPS-only cookies, but no multi-factor sign-in yet; that would come with Micros
 3. Delete that line from the log.
 4. In the app:
    1. **Settings:** center name, OT rule (7 days / 40 h), budget.
-   2. **Staff:** disciplines, authorized counts, employees.
+   2. **Staff:** job classes (e.g. Telecommunicator, Supervisor) with authorized
+      counts, consoles (e.g. Law, Fire/EMS), and employees with their job class and
+      the consoles they're certified on.
    3. **Settings:** minimum staffing grid.
    4. **Lines & Bid:** lines.
    5. **Staff → Create login** for each person. Each one gets a temporary password

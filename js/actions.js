@@ -52,12 +52,18 @@
   }
   const fmtShift = (st, r) => `${P.shortDate(r.day)} ${P.mil(r.start)}–${P.mil(r.end)}`;
 
-  /** Can `empId` legally work [start,end) for positionId? Returns list of problems. */
-  function workProblems(state, empId, positionId, start, end) {
+  /**
+   * Can `empId` legally work [start,end)? For a console, they must be certified on it;
+   * with opts.jobClassId (trades), they must be in that job class instead.
+   */
+  function workProblems(state, empId, positionId, start, end, opts = {}) {
     const emp = empOf(state, empId);
     if (!emp) return ['Unknown employee'];
-    const c = P.fillCandidates(state, { positionId, start, end }).find((x) => x.emp.id === empId);
-    if (!c) return [P.countable(emp) ? 'Not certified for that position' : 'Not cleared to work solo'];
+    const c = P.fillCandidates(state, { positionId, start, end }, { jobClassId: opts.jobClassId }).find((x) => x.emp.id === empId);
+    if (!c) {
+      if (!P.countable(emp)) return ['Not cleared to work solo'];
+      return [opts.jobClassId ? 'Not in the same job class' : 'Not certified on that console'];
+    }
     return c.issues;
   }
 
@@ -118,7 +124,10 @@
       const r = shiftOn(state, fromId, day);
       if (!r) fail(`${name(state, fromId)} is not scheduled on ${dateStr}`);
       if (hasLeaveOn(state, fromId, day)) fail(`${name(state, fromId)} already has leave or a trade on ${dateStr}`);
-      return { fromId, toId, date: dateStr, start: P.timeStr(r.start), hours: (r.end - r.start) / 60, positionId: r.positionId, abs: [r.start, r.end] };
+      // A shift belongs to the person's job class, not a console: the partner must be in
+      // the same job class; where they sit is decided hour by hour by certification.
+      const jc = P.empClass(state, empOf(state, fromId));
+      return { fromId, toId, date: dateStr, start: P.timeStr(r.start), hours: (r.end - r.start) / 60, positionId: r.positionId, jobClassId: jc ? jc.id : null, abs: [r.start, r.end] };
     };
     legs.push(mk(t.requesterId, t.partnerId, t.date));
     if (t.paybackDate) legs.push(mk(t.partnerId, t.requesterId, t.paybackDate));
@@ -126,7 +135,7 @@
   }
   function checkLegs(state, legs) {
     for (const l of legs) {
-      const probs = workProblems(state, l.toId, l.positionId, l.abs[0], l.abs[1]);
+      const probs = workProblems(state, l.toId, l.positionId, l.abs[0], l.abs[1], { jobClassId: l.jobClassId });
       if (probs.length) fail(`${name(state, l.toId)} can't work ${l.date} ${l.start}: ${probs.join(', ')}`);
     }
   }
@@ -216,7 +225,7 @@
 
   function postOpening(state, actor, p, ctx) {
     needSup(actor);
-    if (!p.positionId || !p.date || !p.start || !(+p.hours > 0)) fail('Position, date, start and hours are required');
+    if (!p.positionId || !p.date || !p.start || !(+p.hours > 0)) fail('Console, date, start and hours are required');
     const po = {
       id: P.uid('po'), positionId: p.positionId, date: p.date, start: p.start, hours: +p.hours,
       mode: p.mode === 'first' ? 'first' : 'list', reason: p.reason || 'vacancy', exceptionId: p.exceptionId || null,
@@ -330,7 +339,7 @@
     let list = state.employees.filter((e) => {
       if (e.status === 'inactive') return false;
       if (!classIds.length) return true;
-      const jc = P.jobClassOf(state, e.positionId);
+      const jc = P.empClass(state, e);
       return !!jc && classIds.includes(jc.id);
     });
     list.sort((a, b) => sen(a) - sen(b) || String(a.lastName).localeCompare(b.lastName));
@@ -349,11 +358,11 @@
     }
     return null;
   }
-  /** Days in [from,to] where a discipline is already at its cap. */
+  /** Days in [from,to] where the person's job class is already at its daily cap. */
   function vacConflicts(state, vb, empId, from, to) {
     const emp = empOf(state, empId);
-    const jc = P.jobClassOf(state, emp.positionId);
-    const key = jc ? jc.id : emp.positionId;
+    const jc = P.empClass(state, emp);
+    const key = jc ? jc.id : null;
     const cap = vb.caps && vb.caps[key] != null && vb.caps[key] !== '' ? +vb.caps[key] : Infinity;
     const full = [];
     for (let d = from; d <= to; d++) {
