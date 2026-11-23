@@ -32,7 +32,7 @@
       const per = P.periodOf(st, today);
       const wi = P.workIntervals(st, per.start, per.end);
       const h = P.empHours(wi.intervals.filter((x) => x.employeeId === me.id), wi.leave.filter((x) => x.employeeId === me.id), per.start, per.end);
-      const r = P.otCalc(st.center, h);
+      const r = P.otCalc(st.center, h, me);
       const reqs = st.exceptions.filter((e) => e.employeeId === me.id && e.type !== 'trade' && P.exceptionRange(e)[1] >= today - 30).sort((a, b) => a.date.localeCompare(b.date));
       const notes = App.myNotifications().slice(0, 8);
       const rows = days.map((x) => {
@@ -47,7 +47,9 @@
       return `<div class="page-head"><div><h1>${esc(P.empName(me))}</h1><p>${esc(App.posName(me.positionId))}${(me.qualifications || []).length ? ' · also certified: ' + me.qualifications.map((q) => esc(App.posName(q))).join(', ') : ''}</p></div>
         <div class="toolbar"><button class="btn primary" data-action="me-request">Request time off</button><button class="btn" data-action="go" data-to="open">Open shifts</button><button class="btn" data-action="go" data-to="trades">Trade a shift</button></div></div>
       <div class="kpis">
-        ${App.kpi('This work week', `${hrs(r.worked)} h`, `${P.shortDate(per.start)}–${P.shortDate(per.end)} · OT after ${st.center.otThresholdHours} h`, r.worked > st.center.otThresholdHours ? 'warn' : '')}
+        ${P.isPartTime(me) ? (() => { const wk = P.workWeek(st, today); const hw = P.empHours(wi.intervals.filter((x) => x.employeeId === me.id), [], wk.start, wk.end); const used = hw.regular + hw.fill; const cap = P.partTimeCap(st, me);
+          return App.kpi('This week (part-time)', `${hrs(used)} / ${hrs(cap)} h`, `${hrs(Math.max(0, cap - used))} h left to pick up · ${P.shortDate(wk.start)}–${P.shortDate(wk.end)}`, used >= cap ? 'warn' : ''); })()
+          : App.kpi('This work week', `${hrs(r.worked)} h`, `${P.shortDate(per.start)}–${P.shortDate(per.end)} · OT after ${st.center.otThresholdHours} h`, r.worked > st.center.otThresholdHours ? 'warn' : '')}
         ${App.kpi('OT hours this week', hrs(r.otHours), 'scheduled through week end')}
         ${App.kpi('Pending requests', reqs.filter((e) => e.status === 'pending').length, '')}
         ${App.kpi('Unread notices', notes.filter((n) => n.unread).length, '<a href="#" data-action="bell">view</a>')}

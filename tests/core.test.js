@@ -251,6 +251,46 @@ test('diffState / applyDiff round-trip', () => {
   assert.equal(JSON.stringify(P.diffState(b, c)), JSON.stringify({ upserts: {}, deletes: {}, config: {} }));
 });
 
+test('part-time: extra shifts at straight time, ranked first, capped, not forced', () => {
+  const s = tiny();
+  s.center.extraShiftsAlwaysOT = true; // full-timers would be paid OT for any extra shift
+  s.lines = [{ id: 'E', name: 'E', positionId: 'tc', shiftTemplateId: 't_d8', patternId: 'p_52', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: 'a' }];
+  Object.assign(s.employees[2], { employmentType: 'part', maxWeeklyHours: 20, hourlyRate: 18 }); // 'c' is part-time
+  const day = D('2026-01-10'); // Saturday: 'a' is off
+  const slot = { positionId: 'tc', start: day * 1440 + 7 * 60, end: day * 1440 + 15 * 60 };
+  const vol = P.fillCandidates(s, slot).filter((x) => x.eligible);
+  assert.equal(vol[0].emp.id, 'c');                 // part-timer first
+  assert.equal(vol[0].cost, 8 * 18);                // straight time
+  assert.ok(vol.find((x) => x.emp.id === 'a').cost > 8 * 20); // full-timer is OT
+  const forced = P.fillCandidates(s, slot, { order: 'mandatory' });
+  assert.equal(forced.find((x) => x.emp.id === 'c').eligible, false);
+  s.center.partTimeMandatory = true;
+  assert.equal(P.fillCandidates(s, slot, { order: 'mandatory' }).find((x) => x.emp.id === 'c').eligible, true);
+  // Cap: 16 h already this week, another 8 would make 24 > 20.
+  s.fills.push({ id: 'p1', date: '2026-01-05', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'c', type: 'voluntary', reason: 'sick' });
+  s.fills.push({ id: 'p2', date: '2026-01-06', start: '07:00', hours: 8, positionId: 'tc', employeeId: 'c', type: 'voluntary', reason: 'sick' });
+  const capped = P.fillCandidates(s, slot).find((x) => x.emp.id === 'c');
+  assert.equal(capped.eligible, false);
+  assert.match(capped.issues.join(), /Part-time cap: 24 of 20/);
+  // OT report: the part-timer's 16 extra hours are straight time and counted as OT avoided.
+  const r = P.otReport(s, D('2026-01-04'), D('2026-01-10'));
+  assert.equal((r.totals.byEmp.c || { hours: 0 }).hours, 0);
+  assert.equal(r.totals.partTime.hours, 16);
+  assert.equal(r.totals.partTime.cost, 16 * 18);
+  assert.ok(r.totals.partTime.avoided > 0);
+});
+
+test('staffing: authorized counts full-time; part-timers shown as FTE', () => {
+  const s = tiny();
+  Object.assign(s.employees[2], { employmentType: 'part', maxWeeklyHours: 20 });
+  const r = P.staffingSummary(s)[0];
+  assert.equal(r.fullTime, 2);
+  assert.equal(r.partTime, 1);
+  assert.equal(r.vacancies, 1); // authorized 3, two full-time
+  assert.equal(r.partFTE, 0.5);
+  assert.equal(r.countableFTE, 2.5);
+});
+
 test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);

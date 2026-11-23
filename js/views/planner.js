@@ -34,9 +34,9 @@
         const perPos = sum.map((s) => {
           const req = P.requiredWeeklyHours(st, s.position.id) * 52.143;
           const fte = req / net;
-          const gap = fte - s.countable;
+          const gap = fte - s.countableFTE;
           const rate = P.avgRate(st, s.position.id);
-          return { s, fte, gap, gapCost: Math.max(0, gap) * net * rate * mult, builtCost: ot.min * Math.min(s.countable, Math.ceil(fte)) * rate * mult };
+          return { s, fte, gap, gapCost: Math.max(0, gap) * net * rate * mult, builtCost: ot.min * Math.min(s.countable - s.partTime, Math.ceil(fte)) * rate * mult };
         });
         return { i, r, pat, tpl, weekly, annual, net, relief: 8760 / net, ot, perPos };
       });
@@ -47,7 +47,7 @@
         <div class="field"><label>Required coverage</label><div>${sum.map((s) => `${esc(s.position.name)}: ${hrs(P.requiredWeeklyHours(st, s.position.id))} person-h/wk`).join('<br>')}</div></div>
       </div><p class="small muted">Leave should include vacation, sick, holiday, training, FMLA, military and other time off the console. Typical PSAPs run 180–280 h. Required coverage comes from the minimum grid in Settings.</p></div>
       <div class="panel"><div class="table-wrap"><table><thead><tr><th>Shift</th><th>Pattern</th><th class="num">Avg h/wk</th><th class="num">Net avail h/yr</th><th class="num">Relief factor</th><th class="num">Built-in OT h/yr/FTE</th>
-        ${sum.map((s) => `<th class="num">${esc(s.position.name)} FTE needed</th><th class="num">vs ${s.countable} countable</th>`).join('')}<th class="num">Est. OT/yr to cover gap + built-in</th><th></th></tr></thead><tbody>
+        ${sum.map((s) => `<th class="num">${esc(s.position.name)} FTE needed</th><th class="num" title="Full-time plus part-time FTE">vs ${s.countableFTE.toFixed(1)} on staff</th>`).join('')}<th class="num">Est. OT/yr to cover gap + built-in</th><th></th></tr></thead><tbody>
         ${rows.map((x) => `<tr>
           <td><select style="min-width:170px" data-change="plan-row" data-i="${x.i}" data-f="tpl">${App.opts(st.shiftTemplates, x.r.tpl, (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select></td>
           <td><select style="min-width:200px" data-change="plan-row" data-i="${x.i}" data-f="pat">${App.opts(st.patterns, x.r.pat)}</select></td>

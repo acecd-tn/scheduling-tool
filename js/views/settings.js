@@ -55,6 +55,10 @@
           <div class="field" style="margin-top:8px"><label>Mandatory (forced) OT order</label><select data-change="center" data-k="forceOrderBasis">
             <option value="lastOT" ${c.forceOrderBasis !== 'lastForced' ? 'selected' : ''}>Longest since any OT worked, then least senior</option>
             <option value="lastForced" ${c.forceOrderBasis === 'lastForced' ? 'selected' : ''}>Longest since last forced, then least senior</option></select></div>
+          <h3 style="margin-top:12px">Part-time staff</h3>
+          <label class="check">${chk('partTimeFirst')} Offer open shifts to part-timers first (straight time, before full-time OT)</label>
+          <label class="check">${chk('partTimeMandatory')} Part-timers can be forced (mandatory list)</label>
+          <div class="form-grid"><div class="field"><label>Default weekly cap (h)</label>${num('partTimeDefaultCap', 0.5)}</div></div>
           <h3 style="margin-top:12px">Fatigue & fill rules</h3>
           <div class="form-grid">
             <div class="field"><label>Min rest between shifts (h)</label>${num('minRestHours', 0.5)}</div>

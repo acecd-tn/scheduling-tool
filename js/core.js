@@ -124,6 +124,9 @@
       minRestHours: 8,
       maxShiftHours: 16,
       maxHours7Days: 60,
+      partTimeFirst: true,        // voluntary list: eligible part-timers (straight time) before full-time OT
+      partTimeMandatory: false,   // part-timers on the mandatory (forced) list
+      partTimeDefaultCap: 29,     // weekly hour cap for part-timers without their own
       coverageMode: 'assigned',   // 'assigned' = cross-trained staff are placed on consoles each hour; 'home' = count home discipline only
       minPresenceMinutes: 30,     // a person counts for an hour if on duty at least this long in it
       tradeRequiresApproval: true,
@@ -184,6 +187,8 @@
       { id: 'p_12d8', name: '2 x 12 + 2 x 8 — days (D12 D12 D8 D8)', cycle: [D12, D12, 0, D8, D8, 0, 0] },
       { id: 'p_12n8', name: '2 x 12 + 2 x 8 — nights (N12 N12 M8 M8)', cycle: [N12, N12, 0, 0, M8, M8, 0] },
       { id: 'p_3x12', name: '3 x 12 + 1 x 4 (three 12s plus a 4-hr peak)', cycle: [1, 1, 1, 0, S4, 0, 0] },
+      { id: 'p_pt2', name: 'Part-time: 2 days a week', cycle: [1, 1, 0, 0, 0, 0, 0] },
+      { id: 'p_pt3', name: 'Part-time: 3 days a week', cycle: [1, 1, 1, 0, 0, 0, 0] },
     ];
   }
 
@@ -208,6 +213,18 @@
       emp: by(state.employees), tpl: by(state.shiftTemplates), pat: by(state.patterns),
       pos: by(state.positions), line: by(state.lines), excType: by(EXCEPTION_TYPES),
     };
+  }
+
+  const isPartTime = (e) => !!e && e.employmentType === 'part';
+  function partTimeCap(state, e) {
+    const v = e && e.maxWeeklyHours !== '' && e.maxWeeklyHours != null ? +e.maxWeeklyHours : +state.center.partTimeDefaultCap;
+    return v > 0 ? v : 29;
+  }
+  /** The 7-day work week containing a day: the OT period when it is 7 days, else Sunday-Saturday. */
+  function workWeek(state, day) {
+    if ((+state.center.otPeriodDays || 7) === 7) return periodOf(state, day);
+    const start = day - dow(day);
+    return { start, end: start + 6 };
   }
 
   function empName(e) { return e ? `${e.lastName}, ${e.firstName}` : '—'; }
@@ -497,12 +514,15 @@
     return h;
   }
 
-  /** Apply the center's OT rules to an employee's period hours. */
-  function otCalc(center, h) {
+  /**
+   * Apply the center's OT rules to an employee's period hours. Part-timers work
+   * extra shifts at straight time; only hours over the legal threshold (FLSA) are OT.
+   */
+  function otCalc(center, h, emp) {
     let worked = h.regular + h.fill + h.workedLeave;
     if (center.leaveCountsTowardOT) worked += h.leave;
     const excess = Math.max(0, worked - (+center.otThresholdHours || 40));
-    const otHours = center.extraShiftsAlwaysOT ? Math.max(excess, h.fill) : excess;
+    const otHours = center.extraShiftsAlwaysOT && !isPartTime(emp) ? Math.max(excess, h.fill) : excess;
     const fillOT = Math.min(otHours, h.fill);
     return { worked, otHours, fillOT, builtIn: otHours - fillOT };
   }
@@ -518,18 +538,29 @@
     for (let p = periodOf(state, fromDay); p.start <= toDay; p = { start: p.end + 1, end: p.end + len }) {
       periods.push({ start: p.start, end: p.end, cost: 0, hours: 0, byReason: {}, byEmp: {} });
     }
-    if (!periods.length) return { periods, totals: { cost: 0, hours: 0, byReason: {}, byEmp: {} } };
+    const emptyPT = () => ({ hours: 0, cost: 0, avoided: 0 });
+    if (!periods.length) return { periods, totals: { cost: 0, hours: 0, byReason: {}, byEmp: {}, partTime: emptyPT() } };
     const wi = opts.wi || workIntervals(state, periods[0].start, periods[periods.length - 1].end);
     const ivBy = groupBy(wi.intervals, 'employeeId'), lvBy = groupBy(wi.leave, 'employeeId');
-    const totals = { cost: 0, hours: 0, byReason: {}, byEmp: {} };
+    const totals = { cost: 0, hours: 0, byReason: {}, byEmp: {}, partTime: emptyPT() };
     const mult = +c.otMultiplier || 1.5;
+    // What the same hours would have cost as full-time overtime.
+    const ftRates = state.employees.filter((e) => e.status !== 'inactive' && !isPartTime(e) && +e.hourlyRate > 0).map((e) => +e.hourlyRate);
+    const ftRate = ftRates.length ? ftRates.reduce((a, b) => a + b, 0) / ftRates.length : 0;
+    for (const p of periods) p.partTime = emptyPT();
     for (const emp of state.employees) {
       const ivs = ivBy[emp.id] || [], lvs = lvBy[emp.id] || [];
       if (!ivs.length) continue;
       const rate = +emp.hourlyRate || 0;
+      const pt = isPartTime(emp);
       for (const p of periods) {
         const h = empHours(ivs, lvs, p.start, p.end, opts.cutoff);
-        const r = otCalc(c, h);
+        const r = otCalc(c, h, emp);
+        if (pt && h.fill > 0) {
+          const straight = h.fill - r.fillOT;
+          const x = { hours: straight, cost: straight * rate, avoided: Math.max(0, straight * (ftRate * mult - rate)) };
+          for (const o of [p.partTime, totals.partTime]) { o.hours += x.hours; o.cost += x.cost; o.avoided += x.avoided; }
+        }
         if (r.otHours <= 0) continue;
         const cost = r.otHours * rate * mult;
         p.cost += cost; p.hours += r.otHours;
@@ -605,10 +636,18 @@
       const traineeNot = emps.filter((e) => e.status === 'trainee' && !e.soloCleared).length;
       const onLeave = emps.filter((e) => e.status === 'leave').length;
       const authorized = +p.authorized || 0;
+      // Authorized strength is full-time positions; part-timers are shown separately.
+      const full = emps.filter((e) => !isPartTime(e));
+      const part = emps.filter((e) => isPartTime(e));
+      const partFTE = part.reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
+      const countableFull = full.filter(countable).length;
+      const countablePartFTE = part.filter(countable).reduce((s, e) => s + partTimeCap(state, e) / 40, 0);
       return {
-        position: p, authorized, current: emps.length, active, traineeSolo, traineeNot, onLeave,
-        countable: active + traineeSolo, vacancies: Math.max(0, authorized - emps.length),
-        pct: authorized ? emps.length / authorized : 0,
+        position: p, authorized, current: emps.length, fullTime: full.length, partTime: part.length, partFTE,
+        active, traineeSolo, traineeNot, onLeave,
+        countable: active + traineeSolo, countableFTE: countableFull + countablePartFTE,
+        vacancies: Math.max(0, authorized - full.length),
+        pct: authorized ? full.length / authorized : 0,
       };
     });
   }
@@ -682,7 +721,8 @@
     const ix = index(state);
     const d0 = Math.floor(slot.start / DAY);
     const per = periodOf(state, d0);
-    const wi = workIntervals(state, Math.min(d0 - 8, per.start), Math.max(d0 + 2, per.end), { ix });
+    const wk = workWeek(state, d0);
+    const wi = workIntervals(state, Math.min(d0 - 8, per.start, wk.start), Math.max(d0 + 2, per.end, wk.end), { ix });
     const ivBy = groupBy(wi.intervals, 'employeeId'), lvBy = groupBy(wi.leave, 'employeeId');
     const fy = fiscalYear(state, d0);
     const fyFills = state.fills.filter((f) => f.status !== 'cancelled' && f.type !== 'trade' && parseDate(f.date) >= fy.start && parseDate(f.date) <= fy.end);
@@ -733,18 +773,27 @@
       }
       if (hours7 > (+c.maxHours7Days || 60)) warnings.push(`${round2(hours7)}h in 7 days`);
       if (emp.status === 'trainee') warnings.push('Trainee (solo cleared)');
+      const partTime = isPartTime(emp);
+      let weekHours = null, cap = null;
+      if (partTime) {
+        cap = partTimeCap(state, emp);
+        weekHours = d0 >= wk.start && d0 <= wk.end ? slotHours : 0;
+        for (const iv of ivs) if (iv.day >= wk.start && iv.day <= wk.end) weekHours += (iv.end - iv.start) / 60;
+        if (weekHours > cap + 1e-6) issues.push(`Part-time cap: ${round2(weekHours)} of ${cap} h this week`);
+        if (opts.order === 'mandatory' && !c.partTimeMandatory) issues.push('Part-time: not on the force list');
+      }
       if (emp.positionId !== slot.positionId) warnings.push('Cross-trained');
       // incremental OT cost
       const h = empHours(ivs, lvBy[emp.id] || [], per.start, per.end);
-      const before = otCalc(c, h).otHours;
+      const before = otCalc(c, h, emp).otHours;
       const h2 = Object.assign({}, h, { fill: h.fill + (d0 <= per.end ? slotHours : 0) });
-      const after = otCalc(c, h2).otHours;
+      const after = otCalc(c, h2, emp).otHours;
       const otHours = after - before;
       const myFills = fillsBy[emp.id] || [];
       const otFyHours = myFills.reduce((s, f) => s + +f.hours, 0);
       const forced = myFills.filter((f) => f.type === 'mandatory').map((f) => f.date).sort();
       res.push({
-        emp, eligible: !issues.length, issues, warnings, holdover, earlyIn, blockHours, hours7,
+        emp, eligible: !issues.length, issues, warnings, holdover, earlyIn, blockHours, hours7, partTime, weekHours, cap,
         otFyHours, lastForced: forced.length ? forced[forced.length - 1] : null, forcedCount: forced.length,
         lastOTAt: lastOT[emp.id] ?? null, lastOT: lastOT[emp.id] != null ? fmtDate(Math.floor(lastOT[emp.id] / DAY)) : null,
         otHours, cost: otHours * (+emp.hourlyRate || 0) * mult + (slotHours - otHours) * (+emp.hourlyRate || 0),
@@ -756,8 +805,10 @@
       const key = c.forceOrderBasis === 'lastForced' ? (x) => (x.lastForced ? parseDate(x.lastForced) * DAY : -Infinity) : (x) => (x.lastOTAt ?? -Infinity);
       res.sort((a, b) => (b.eligible - a.eligible) || key(a) - key(b) || sen(b.emp) - sen(a.emp));
     } else {
-      // Voluntary list: holdovers first, then fewest OT hours this FY, then most senior.
-      res.sort((a, b) => (b.eligible - a.eligible) || ((b.holdover || b.earlyIn) - (a.holdover || a.earlyIn)) || a.otFyHours - b.otFyHours || sen(a.emp) - sen(b.emp));
+      // Voluntary list: part-timers at straight time first (if set), then holdovers,
+      // then fewest OT hours this FY, then most senior.
+      const ptFirst = c.partTimeFirst !== false;
+      res.sort((a, b) => (b.eligible - a.eligible) || (ptFirst ? (b.partTime - a.partTime) : 0) || ((b.holdover || b.earlyIn) - (a.holdover || a.earlyIn)) || a.otFyHours - b.otFyHours || sen(a.emp) - sen(b.emp));
     }
     return res;
   }
@@ -959,8 +1010,8 @@
       pos_sup: grid(() => 1),
     };
 
-    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly', 'Iris', 'Jack', 'Leah', 'Miles', 'Nora', 'Omar', 'Paige', 'Reid', 'Sofia', 'Troy', 'Wade', 'Abby'];
-    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert', 'Bishop', 'Cole', 'Dunn', 'Fields', 'Greer', 'Hale', 'Ingram', 'Jordan', 'Kemp', 'Lyons', 'Mercer', 'Noble'];
+    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly', 'Iris', 'Jack', 'Leah', 'Miles', 'Nora', 'Omar', 'Paige', 'Reid', 'Sofia', 'Troy', 'Wade', 'Abby', 'Bianca', 'Caleb', 'Dana', 'Elias'];
+    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert', 'Bishop', 'Cole', 'Dunn', 'Fields', 'Greer', 'Hale', 'Ingram', 'Jordan', 'Kemp', 'Lyons', 'Mercer', 'Noble', 'Ortiz', 'Pham', 'Quinlan', 'Rowe'];
     let n = 0;
     const mk = (positionId, extra = {}) => {
       const year = Math.min(2025, 1998 + Math.floor((n * 37) % 28));
@@ -1013,6 +1064,13 @@
     // Trainees: one call-taker still with a CTO (doesn't count), one law dispatcher solo-cleared.
     Object.assign(ct[1], { status: 'trainee', soloCleared: false, hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
     Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
+    // Part-time staff: straight time, capped hours. Two call-takers on part-time lines
+    // covering the weekend peak, one law dispatcher who only picks up open shifts.
+    const ptCt1 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
+    const ptCt2 = mk('pos_ct', { employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
+    const ptLaw = mk('pos_law', { employmentType: 'part', maxWeeklyHours: 19.5, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
+    line('pos_ct', 't_e8', 'p_pt2', 5, 'CT PT-1', ptCt1);
+    line('pos_ct', 't_d8', 'p_pt3', 4, 'CT PT-2', ptCt2);
     // Vacant lines on the books (authorized but unfilled).
     line('pos_ct', 't_d8', 'p_52', 3, 'CT D-5', null);
     line('pos_sup', 't_m8', 'p_52', 2, 'SUP M-2', null);
@@ -1088,7 +1146,7 @@
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
-    defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor,
+    defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,
     lineActiveOn, lineShiftOn, regularShifts, workIntervals, exceptionRange,
     requiredFor, coverage, openings, slotReason,
     periodOf, fiscalYear, empHours, otCalc, otReport, otForecast, avgRate, slotCost,

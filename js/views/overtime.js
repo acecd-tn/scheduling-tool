@@ -64,6 +64,7 @@
         ${App.kpi('FY to date (actual)', money(fc.ytd), `${hrs(fc.ytdHours)} OT hrs · ${App.pct(fc.budget ? fc.ytd / fc.budget : 0)} of budget, ${App.pct(elapsed)} of year elapsed`, fc.budget && fc.ytd / fc.budget > elapsed + 0.05 ? 'warn' : '')}
         ${App.kpi('FY projection (run-rate)', money(fc.projection), `${money(fc.daily)}/day last 28 days · ${App.pct(budgetPct)} of ${money(fc.budget)}`, budgetPct > 1 ? 'bad' : budgetPct > 0.9 ? 'warn' : 'ok')}
         ${App.kpi('Committed rest of FY', money(fc.known), 'built-in schedule OT + already-scheduled fills')}
+        ${App.kpi('Part-time coverage (FY)', `${hrs(fc.actual.totals.partTime.hours)} h`, `${money(fc.actual.totals.partTime.cost)} at straight time · about ${money(fc.actual.totals.partTime.avoided)} less than full-time OT`, fc.actual.totals.partTime.hours ? 'ok' : '')}
         ${App.kpi(`Unfilled exposure (${fc.horizonDays} d)`, money(fc.gapCost), `${fc.gapCount} openings · ${hrs(fc.gapHours)} h`, fc.gapCost ? 'warn' : '')}
       </div>
       <div class="grid g2">
@@ -76,7 +77,7 @@
           ${fullReasons['built-in'] ? `<p class="small muted">"Built-in" is OT the rotation itself creates: a line scheduled for more than ${c.otThresholdHours} h in a ${c.otPeriodDays}-day period. Lines & Bid flags these lines; compare patterns in the Planner.</p>` : ''}
         </div>
         <div class="panel"><h2>By employee (FY to date)</h2><div class="table-wrap" style="max-height:420px"><table><thead><tr><th>Employee</th><th class="num">OT hrs</th><th class="num">OT cost</th><th class="num">Extra shifts</th><th class="num">Extra hrs</th><th class="num">Forced</th><th></th></tr></thead><tbody>
-          ${empRows.map((r) => `<tr><td>${esc(P.empName(r.e))}</td><td class="num">${hrs(r.a.hours)}</td><td class="num">${money(r.a.cost)}</td><td class="num">${r.fills}</td><td class="num">${hrs(r.extraHrs)}</td><td class="num">${r.forced}</td>
+          ${empRows.map((r) => `<tr><td>${esc(P.empName(r.e))}${P.isPartTime(r.e) ? ' <span class="badge info" title="Part-time: extra shifts at straight time">PT</span>' : ''}</td><td class="num">${hrs(r.a.hours)}</td><td class="num">${money(r.a.cost)}</td><td class="num">${r.fills}</td><td class="num">${hrs(r.extraHrs)}</td><td class="num">${r.forced}</td>
             <td style="width:90px"><div class="meter"><span style="width:${r.a.cost / maxEmp * 100}%"></span></div></td></tr>`).join('')}
         </tbody></table></div></div>
         <div class="panel"><h2>OT assignments <span class="seg"><button class="${ui.ot.log === 'upcoming' ? 'on' : ''}" data-action="ot-log" data-v="upcoming">Upcoming</button><button class="${ui.ot.log === 'past' ? 'on' : ''}" data-action="ot-log" data-v="past">Past</button></span></h2>
