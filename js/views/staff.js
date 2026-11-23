@@ -16,8 +16,8 @@
       return `<div class="page-head"><div><h1>Staff & authorized strength</h1><p>Authorized positions vs. who you actually have. Schedules and minimum checks use current staff only.</p></div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${ui.staff.showInactive ? 'checked' : ''} data-change="staff-inactive"> Show separated</label>
         <button class="btn primary" data-action="emp-edit">+ Employee</button></div></div>
-      <div class="grid g2" style="margin-bottom:14px">
-        <div class="panel"><h2>Positions</h2><table><thead><tr><th>Discipline</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (a separate category; not counted in Authorized)">PT authorized</th><th class="num" title="Part-time staff (full-time equivalent at their weekly caps)">PT filled</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
+      <div class="grid" style="margin-bottom:14px">
+        <div class="panel"><h2>Positions</h2><div class="table-wrap"><table class="positions"><thead><tr><th>Discipline</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (a separate category; not counted in Authorized)">PT authorized</th><th class="num" title="Part-time staff (full-time equivalent at their weekly caps)">PT filled</th><th class="num">Countable</th><th title="When short, lower numbers are staffed first">Fill priority</th><th title="Most people in this discipline on planned leave (vacation/comp/holiday) per day">Max off / day</th><th>Console seat</th><th></th></tr></thead><tbody>
           ${sum.map((r) => `<tr><td><input value="${esc(r.position.name)}" data-change="pos-field" data-id="${r.position.id}" data-f="name"></td>
             <td><input type="number" min="0" value="${r.authorized}" data-change="pos-field" data-id="${r.position.id}" data-f="authorized" style="width:80px"></td>
             <td class="num">${r.fullTime}</td><td class="num">${r.vacancies ? `<span class="badge bad">${r.vacancies}</span>` : 0}</td>
@@ -27,7 +27,7 @@
             <td><input type="number" min="0" value="${esc((st.center.maxOffPerDay || {})[r.position.id] ?? '')}" data-change="max-off" data-id="${r.position.id}" style="width:70px" placeholder="none"></td>
             <td><input type="checkbox" ${r.position.isConsole ? 'checked' : ''} data-change="pos-field" data-id="${r.position.id}" data-f="isConsole"></td>
             <td><button class="btn sm danger" data-action="pos-del" data-id="${r.position.id}">✕</button></td></tr>`).join('')}
-        </tbody></table><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Position</button></div>
+        </tbody></table></div><button class="btn sm" data-action="pos-add" style="margin-top:8px">+ Position</button></div>
         <div class="panel"><h2>What the vacancies cost</h2>
           <p>${sum.map((r) => `${esc(r.position.name)}: <b>${r.vacancies}</b> vacant`).join(' · ')}</p>
           <p class="small muted">Authorized counts full-time positions only. Part-time positions are a separate category (PT authorized); part-timers don't fill a full-time vacancy, but they work open shifts at straight time.</p>
@@ -119,7 +119,7 @@
         <div class="field"><label>Badge / employee #</label><input name="badge" value="${esc(e.badge)}"></div>
         <div class="field"><label>Position</label><select name="positionId">${App.opts(st.positions, e.positionId)}</select></div>
         <div class="field"><label>Status</label><select name="status">${App.opts(P.STATUSES, e.status, (s) => s.label)}</select></div>
-        <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time (straight time, capped hours, never forced)</option></select></div>
+        <div class="field"><label>Employment</label><select name="employmentType"><option value="full">Full-time</option><option value="part" ${P.isPartTime(e) ? 'selected' : ''}>Part-time</option></select></div>
         <div class="field"><label>Part-time weekly cap (h)</label><input type="number" step="0.5" min="1" max="40" name="maxWeeklyHours" value="${esc(e.maxWeeklyHours ?? '')}" placeholder="${esc(st.center.partTimeDefaultCap)}"></div>
         <div class="field"><label class="check" style="margin-top:22px"><input type="checkbox" name="soloCleared" ${e.soloCleared ? 'checked' : ''}> Solo-cleared (counts toward minimums)</label></div>
         <div class="field"><label>Hire date</label><input type="date" name="hireDate" value="${esc(e.hireDate)}"></div>
@@ -129,6 +129,7 @@
         <div class="field"><label>Email</label><input type="email" name="email" value="${esc(e.email || '')}"></div>
         <div class="field"><label class="check" style="margin-top:22px"><input type="checkbox" name="textOptIn" ${e.textOptIn ? 'checked' : ''}> OK to text open shifts</label></div>
       </div>
+      <p class="small muted" style="margin:0 0 10px">Part-time: extra shifts at straight time, capped weekly hours (blank cap = center default of ${esc(st.center.partTimeDefaultCap)} h), never forced.</p>
       <div class="field"><label>Also certified on (cross-training — they can be placed on these consoles)</label><div class="pill-list">${st.positions.map((p) => `<label class="check"><input type="checkbox" data-multi="1" name="qualifications" value="${p.id}" ${(e.qualifications || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('')}</div></div>
       <div class="field"><label>Notes</label><textarea name="notes" rows="2" style="width:100%">${esc(e.notes)}</textarea></div>`,
       footer: `${e.id ? `<button class="btn danger" data-action="emp-del" data-id="${e.id}" style="margin-right:auto">Delete</button>` : ''}<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="emp-save" data-id="${e.id}">Save</button>`,

@@ -98,6 +98,12 @@ input[type="checkbox"] { width: auto; }
 label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; font-weight: 500; }
 .field { margin-bottom: 10px; }
 .form-grid { display: grid; gap: 10px 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+/* form controls fill their field instead of using the browser's default width */
+.field > input:not([type="checkbox"]):not([type="radio"]):not([type="color"]), .field > select, .field > textarea { width: 100%; max-width: 100%; }
+.form-grid > * { min-width: 0; }
+/* compact number inputs in the positions table */
+table.positions td input[type="number"] { width: 64px; }
+table.positions td:first-child input { min-width: 150px; }
 .check { display: flex; align-items: center; gap: 6px; color: var(--text); font-size: 14px; }
 .btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--panel-2); border-radius: 6px; padding: 6px 12px; cursor: pointer; font-weight: 500; white-space: nowrap; }
 .btn:hover { border-color: var(--accent); }
