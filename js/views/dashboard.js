@@ -55,7 +55,7 @@
 
       return `
       <div class="page-head"><div><h1>Dashboard</h1><p>${esc(S.center.name)} · ${P.shortDate(today)} · OT period ${P.shortDate(fc.cur.start)}–${P.shortDate(fc.cur.end)}</p></div>
-        <div class="toolbar"><button class="btn" data-action="quick-callout">+ Record call-out</button><button class="btn" data-action="go" data-to="openings">View openings</button></div></div>
+        <div class="toolbar"><button class="btn primary" data-action="go" data-to="fix" title="Short shifts for the next few weeks, who can cover without overtime, and the cost if nobody can">Fix coverage</button><button class="btn" data-action="quick-callout">+ Record call-out</button><button class="btn" data-action="go" data-to="openings">View openings</button></div></div>
       ${App.levelNotice(S)}
       <div class="kpis">
         ${nowCards}

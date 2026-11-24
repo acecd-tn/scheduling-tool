@@ -45,7 +45,7 @@
     return `<div class="panel">
       <div class="page-head" style="margin-bottom:8px"><div class="pill-list">${summary}</div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${u.showPast ? 'checked' : ''} data-change="lines-past"> Show ended lines</label>
-        <button class="btn" data-action="line-add">+ Line</button><button class="btn" data-action="line-gen" data-target="current">Generate lines…</button><button class="btn primary" data-action="sug-open">Suggest lines…</button></div></div>
+        <button class="btn" data-action="line-add">+ Line</button><button class="btn" data-action="line-gen" data-target="current">Generate lines…</button><button class="btn primary" data-action="sug-open" title="Keeps everyone on their shift and picks which week of the rotation each person starts on">Rebalance lines…</button></div></div>
       ${unassignedEmps.length ? `<div class="callout warn">No line assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
       ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant line(s) — these produce structural openings until filled.</div>` : ''}
       <div class="table-wrap"><table><thead><tr><th>Line</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
@@ -69,7 +69,8 @@
     return `<tr class="${ended ? 'dim' : ''}"><td><input value="${esc(l.name)}" data-change="${ch}" data-id="${l.id}" data-f="name" style="min-width:90px"></td>
       <td>${kind === 'line' ? `<select data-change="${ch}" data-id="${l.id}" data-f="jobClassId">${classOpts(st, jc ? jc.id : '')}</select>` : esc(jc ? jc.name : '')}</td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="positionId">${consoleOpts(st, l.positionId)}</select></td>
-      <td><select data-change="${ch}" data-id="${l.id}" data-f="shiftTemplateId">${App.opts(st.shiftTemplates, l.shiftTemplateId, (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select></td>
+      <td><select data-change="${ch}" data-id="${l.id}" data-f="shiftTemplateId">${App.opts(st.shiftTemplates, l.shiftTemplateId, (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select>
+        ${pat && pat.cycle.some(P.isShortTok) ? `<div><select class="small" data-change="${ch}" data-id="${l.id}" data-f="shortTemplateId" title="This line's 4-hour shift (blank = the job class setting)"><option value="">4-hour: ${esc((() => { const t = P.shortTemplateOf(Object.assign({}, l, { shortTemplateId: null }), P.index(st)); return t ? `${t.code} ${t.start.replace(':', '')}` : '—'; })())} (default)</option>${App.opts(st.shiftTemplates.filter((t) => +t.hours === 4), l.shortTemplateId || '', (t) => `4-hour: ${t.code} ${t.start.replace(':', '')}`)}</select></div>` : ''}</td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="patternId">${App.opts(st.patterns, l.patternId)}</select></td>
       <td><input type="date" value="${esc(l.anchorDate || l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="anchorDate"></td>
       ${kind === 'line' ? `<td><input type="date" value="${esc(l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="effectiveFrom"></td>
@@ -129,19 +130,21 @@
     const target = el.dataset.target;
     const bid = target === 'bid' ? st.bids.find((b) => b.id === App.ui.bid.bidId) : null;
     const anchor = bid ? bid.effectiveDate : P.fmtDate(P.periodOf(st, P.todayNum()).start);
+    const rot = window.PSAPBalance.rotationPattern(st);
+    const d12 = st.shiftTemplates.find((t) => +t.hours === 12);
     App.modal({
       title: 'Generate lines',
       body: `<div class="form-grid">
         ${bid ? `<input type="hidden" name="jobClassId" value="${esc((P.bidClass(st, bid) || {}).id || '')}">` : `<div class="field"><label>Job class</label><select name="jobClassId">${classOpts(st, '')}</select></div>`}
         <div class="field"><label>Preferred console (optional)</label><select name="positionId">${consoleOpts(st, '')}</select></div>
-        <div class="field"><label>Shift</label><select name="shiftTemplateId">${App.opts(st.shiftTemplates, '', (t) => `${t.code} — ${t.name} ${t.start.replace(':', '')} ${t.hours}h`)}</select></div>
-        <div class="field"><label>Pattern</label><select name="patternId">${App.opts(st.patterns, '')}</select></div>
-        <div class="field"><label>Number of lines</label><input type="number" name="count" min="1" value="10"></div>
-        <div class="field"><label>Teams (start offsets)</label><input type="number" name="teams" min="1" value="2"></div>
+        <div class="field"><label>Shift</label><select name="shiftTemplateId">${App.opts(st.shiftTemplates, rot && d12 ? d12.id : '', (t) => `${t.code} — ${t.name} ${t.start.replace(':', '')} ${t.hours}h`)}</select></div>
+        <div class="field"><label>Pattern</label><select name="patternId">${App.opts(st.patterns, rot ? rot.id : '')}</select></div>
+        <div class="field"><label>Number of lines</label><input type="number" name="count" min="1" value="${rot ? 7 : 10}"></div>
+        <div class="field"><label>Teams (start offsets)</label><input type="number" name="teams" min="1" value="${rot ? 7 : 2}"></div>
         <div class="field"><label>Rotation anchor</label><input type="date" name="anchorDate" value="${anchor}"></div>
         <div class="field"><label>Name prefix</label><input name="prefix" placeholder="e.g. D12"></div>
       </div>
-      <p class="small muted">Teams spread start dates evenly across the pattern. Examples: 5 x 8 → 7 teams staggers days off so the same number work every day. 4 x 10 → 7 teams (or fewer for peak-only coverage). 2 x 12 + 2 x 8 → 7 teams.</p>`,
+      <p class="small muted">Teams spread start dates evenly across the pattern. The rotation (3 × 12 + one 4-hour) starts on a work week, and 7 teams start one week apart, so each day has the same number on and the 4-hour days fall on different days. Then use <b>Rebalance lines</b> to fine-tune. For fixed patterns: 5 x 8 → 7 teams; 4 x 10 → 7 teams.</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="line-gen-go" data-target="' + target + '">Create</button>',
     });
   };

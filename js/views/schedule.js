@@ -87,13 +87,13 @@
           <input type="date" value="${P.fmtDate(from)}" data-change="sched-date">
           <select data-change="sched-days">${App.opts([{ id: 7, name: '1 week' }, { id: 14, name: '2 weeks' }, { id: 28, name: '4 weeks' }], u.days)}</select>
           <select data-change="sched-pos"><option value="all">All job classes</option>${App.opts(P.jobClasses(st), u.pos)}</select>
-          ${App.isSup() ? '<button class="btn" data-action="sched-balance" title="Suggest day-off moves and part-time offers for this week">Balance this week</button>' : ''}
+          ${App.isSup() ? '<button class="btn" data-action="go" data-to="fix" title="Suggest day-off moves and part-time shifts that cover short shifts without overtime">Fix coverage</button>' : ''}
           <button class="btn" data-action="print" title="Print or save as PDF">Print</button>
         </div></div>
       <div class="panel"><div class="legend" style="margin-bottom:8px">
         ${st.shiftTemplates.map((t) => `<span><span class="shift" style="background:${esc(t.color)}">${esc(t.code)}</span>${esc(t.start.replace(':', ''))} ${t.hours}h</span>`).join('')}
         <span><span class="shift leave">S</span>call-out</span><span><span class="shift leave planned">V</span>planned leave</span>
-        <span><span class="shift leave worked">T</span>training / trade</span><span><span class="shift pending" style="background:#64748b">D12</span>pending request</span><span><span class="shift ot">OT</span>overtime</span>
+        <span><span class="shift leave worked">T</span>training / trade</span><span><span class="shift pending" style="background:#64748b">D12</span>pending request</span><span><span class="shift ot">OT</span>overtime</span><span><span class="shift moved" style="background:#64748b">D12</span>moved day off</span><span><span class="shift moved emergency" style="background:#64748b">D12!</span>5 in a row (emergency)</span>
       </div>
       <div class="table-wrap" style="max-height:72vh"><table class="sched"><thead>${head}</thead><tbody>${body || `<tr><td class="empty" colspan="${days.length + 1}">No employees yet — add staff and lines first.</td></tr>`}</tbody></table></div></div>`;
     },
@@ -114,7 +114,8 @@
         const cls = t.worked ? 'worked' : (full.type === 'sick' || full.type === 'family' || full.type === 'injury') ? '' : 'planned';
         h += `<span class="shift leave ${cls}" title="${esc(t.label + ' — ' + title)}">${esc(t.abbr)}</span>`;
       } else {
-        h += `<span class="shift${part ? ' partial' : ''}${pend}" style="background:${esc(tpl.color)}" title="${esc(title + (part ? ` · ${App.excType(part.type).label} ${part.start} ${part.hours}h` : '') + (pend ? ' · pending request' : ''))}">${esc(tpl.code)}</span>`;
+        const mv = r.moveId ? ` · moved day off${r.emergency ? ' · 5 days in a row (emergency)' : ''}` : '';
+        h += `<span class="shift${part ? ' partial' : ''}${pend}${r.moveId ? ' moved' : ''}${r.emergency ? ' emergency' : ''}" style="background:${esc(tpl.color)}" title="${esc(title + (part ? ` · ${App.excType(part.type).label} ${part.start} ${part.hours}h` : '') + (pend ? ' · pending request' : '') + mv)}">${esc(tpl.code)}${r.emergency ? '!' : ''}</span>`;
       }
     }
     if (!(regs || []).length && pending.length) h += '<span class="shift pending muted" title="Pending request on a day off">?</span>';
@@ -122,12 +123,6 @@
     return h;
   }
 
-  App.actions['sched-balance'] = () => {
-    const d = App.ui.sched.start;
-    App.ui.bal.week = d - P.dow(d);
-    App.go('openings');
-    setTimeout(() => App.runBalance(), 0);
-  };
   App.actions['sched-move'] = (el) => { App.ui.sched.start += (+el.dataset.dir) * App.ui.sched.days; App.render(); };
   App.actions['sched-today'] = () => { App.ui.sched.start = P.periodOf(S(), P.todayNum()).start; App.render(); };
   App.changes['sched-date'] = (el) => { if (el.value) { App.ui.sched.start = P.parseDate(el.value); App.render(); } };
@@ -161,7 +156,7 @@
     return `
       <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · line ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
         · ${esc((P.empClass(st, emp) || {}).name || 'no job class')} · certified: ${P.certifications(emp).map((q) => esc(App.posName(q))).join(', ') || 'none'}</p>
-      ${(st.shiftMoves || []).filter((m) => m.status === 'approved' && m.employeeId === empId && (P.parseDate(m.offDate) === day || P.parseDate(m.workDate) === day)).map((m) => `<div class="callout">Day-off move: off ${P.shortDate(P.parseDate(m.offDate))}, works ${P.shortDate(P.parseDate(m.workDate))} instead. <button class="btn sm" data-action="bal-undo" data-id="${m.id}">Undo</button></div>`).join('')}
+      ${(st.shiftMoves || []).filter((m) => m.status === 'approved' && m.employeeId === empId && (P.parseDate(m.offDate) === day || P.parseDate(m.workDate) === day)).map((m) => `<div class="callout">Day-off move: off ${P.shortDate(P.parseDate(m.offDate))}, works ${P.shortDate(P.parseDate(m.workDate))} instead.${m.emergency ? ' <span class="badge bad">5 days in a row — emergency</span>' : ''} <button class="btn sm" data-action="bal-undo" data-id="${m.id}">Undo</button></div>`).join('')}
       ${(() => {
         const im = (st.scheduleImports || []).find((x) => (x.employeeIds || []).includes(empId) && P.parseDate(x.from) <= day && day <= P.parseDate(x.to));
         if (!im) return '';

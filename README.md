@@ -28,6 +28,10 @@ password `demo-password`):
 npm run demo
 ```
 
+The demo center has Law and Fire/EMS consoles plus a supervisor console, 17
+Telecommunicators (9 days, 8 nights) and 5 Supervisors on the 0700/1900 rotation,
+and 3 part-timers. Sign in as `rreed` (supervisor) or `aadams` (employee).
+
 | Setting (environment variable) | Default | |
 |---|---|---|
 | `PORT` / `HOST` | `8080` / `0.0.0.0` | |
@@ -102,9 +106,19 @@ and after. That matters for grievances and payroll disputes.
 - **Overtime.** OT after 40 h in the work week by default (configurable). Shows the
   current week actual vs. predicted, fiscal year to date, a projection against the
   budget, unfilled-opening exposure, OT by reason and by employee, and CSV export.
-- **Rotations.** The built-in patterns are all exactly 40 h every week: 5×8, 4×10,
-  2×12 + 2×8 (days or nights), and 3×12 + 4. Any custom line that would build in OT
-  is flagged.
+- **The rotation (default).** Three 12-hour shifts plus one 4-hour shift a week:
+  exactly 40 hours in every work week, never more. People keep their shift (days stay
+  days, nights stay nights); only days off move: one day later each week, through every
+  combination (weekends included) over 7 weeks. The default base week never puts anyone
+  on more than 3 days in a row. The 4-hour shift starts with the regular shift (day
+  0700-1100, night 1900-2300) or falls during peak call volume; pick per job class in
+  Settings (the peak hours are suggested from your minimums) or per line. Other 40-hour
+  patterns (5×8, 4×10, 2×12 + 2×8) are under Settings → Advanced; any custom line that
+  would build in OT is flagged.
+- **Days in a row.** Nobody is scheduled more than 4 days in a row (the 4-hour shift
+  counts as a day). A 5th only when a supervisor marks a day-off move as an emergency;
+  it is flagged on the schedule. Extra shifts that would break the limit are flagged
+  in the fill list.
 - **Shift bid.** Per job class: generate the class's lines, bid in seniority order (employees pick on their own
   turn and are notified when it arrives), preview coverage across all consoles the
   class staffs, then apply on an effective date.
@@ -126,15 +140,24 @@ and after. That matters for grievances and payroll disputes.
   Critical (<75%), thresholds editable. Shown on the Dashboard and Staff page with a
   6-month outlook from solo dates and leave return dates; a notice appears when a
   level changes. Each level has its own relief margin and daily vacation limit.
-- **Schedule balancer.** *Suggest lines* (Lines & Bid, and inside a shift bid) proposes
-  40-hour lines for a job class that cover every hour of its consoles at minimum first,
-  then keep hours above minimum to the relief margin; compare before/after, then use
-  them in a bid or apply them to current lines (holders keep the closest new line and
-  are notified). *Balance a week* (Openings, or Schedule → Balance this week) suggests
-  moving days off from surplus days to gap days within the same work week, respecting
-  rest rules and the notice period, then offers remaining gaps to part-timers under
-  their cap, then lists what still needs overtime with the cost. Nothing changes until
-  a supervisor approves; the employee is notified.
+- **Fix coverage** (Dashboard → Fix coverage). The tool runs the rotation; the scheduler
+  reviews and approves. One short page answers three questions for the next few weeks:
+  1. *Which shifts are short*, in plain words ("Fri nights are 1 short for 3 weeks").
+  2. *Who can cover without overtime*: day-off moves first ("Have Smith work Fri
+     instead of Tue?": same shift, same work week so still 40 hours, rest rules, the
+     notice period and the days-in-a-row limit), then part-timers under their cap. When
+     coverage allows, it also offers 4-hour shifts for training (a part-timer may cover
+     the seat), never at the cost of overtime.
+  3. *What it costs if nobody can*, with advice at Critical staffing and a pointer to
+     rebalance the lines when the same gap repeats every week.
+  Each suggestion is Approve or Skip; approving notifies the employee. Changes inside
+  the notice period, or a 5th day in a row (emergency), are opt-in.
+- **Rebalance lines** (Lines & Bid, Fix coverage, or inside a shift bid). Keeps everyone
+  on their shift and picks which week of the rotation each person starts on, so every
+  hour of the job class's consoles is at minimum, extra hours stay within the relief
+  margin and 4-hour days are spread across the week. Shows who changes (days off before
+  → after); approving changes only those lines and notifies those people. Or start a
+  shift bid with the suggested lines.
 - **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
   (or calendar days), and a daily limit per job class (default 1). Each pick is
   approved immediately; a calendar shows full days. The same per-job-class limit
@@ -168,7 +191,7 @@ index.html, css/        web app
 js/core.js              scheduling / coverage / OT / bid engine (no DOM; unit tested)
 js/actions.js           workflow rules (requests, trades, postings, bids); run by the server
 js/importer.js          reads and imports an existing schedule grid
-js/balancer.js          line suggestions and week balancing
+js/balancer.js          rotation line suggestions, day-off moves, Fix coverage plan
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page
 server/server.js        HTTP server, auth, SQLite storage, audit, live updates

@@ -134,6 +134,11 @@
       // acceptable) and daily vacation limit ('' = the job class's own limit).
       levelRules: { normal: { reliefMargin: 1, maxOffPerDay: '' }, short: { reliefMargin: 0, maxOffPerDay: '' }, critical: { reliefMargin: 0, maxOffPerDay: '' } },
       dayOffNoticeDays: 14,       // notice needed before changing someone's days off
+      maxConsecutiveDays: 4,      // most days in a row anyone is scheduled (a 4-hour shift counts); +1 only as a flagged emergency
+      lineMode: 'rotation',       // 'rotation' = 3 x 12 + one 4-hr, days off move one day later each week; 'weekly' = fixed 7-day patterns
+      rotationPatternId: 'p_rot', // the rotation the line tools build
+      fixHorizonWeeks: 4,         // how far ahead "Fix coverage" looks
+      offerTraining: true,        // Fix coverage offers 4-hour shifts for training when coverage allows
       levelSeen: {},              // last staffing level acknowledged per job class
       dayStartHour: '',           // scheduling day start hour (0-23); '' = earliest regular shift start
       shiftBoundaries: '',        // e.g. '0700,1900'; '' = worked out from the shifts people work
@@ -177,8 +182,10 @@
 
   function defaultTemplates() {
     return [
-      { id: 't_d12', code: 'D12', name: 'Day 12', start: '06:00', hours: 12, color: '#3b82f6' },
-      { id: 't_n12', code: 'N12', name: 'Night 12', start: '18:00', hours: 12, color: '#8b5cf6' },
+      { id: 't_d12', code: 'D12', name: 'Day 12', start: '07:00', hours: 12, color: '#3b82f6', shortTemplateId: 't_d4' },
+      { id: 't_n12', code: 'N12', name: 'Night 12', start: '19:00', hours: 12, color: '#8b5cf6', shortTemplateId: 't_n4' },
+      { id: 't_d4', code: 'D4', name: 'Day 4 (short)', start: '07:00', hours: 4, color: '#60a5fa' },
+      { id: 't_n4', code: 'N4', name: 'Night 4 (short)', start: '19:00', hours: 4, color: '#a78bfa' },
       { id: 't_d8', code: 'D8', name: 'Days 8', start: '07:00', hours: 8, color: '#0ea5e9' },
       { id: 't_e8', code: 'E8', name: 'Evenings 8', start: '15:00', hours: 8, color: '#f59e0b' },
       { id: 't_m8', code: 'M8', name: 'Mids 8', start: '23:00', hours: 8, color: '#6366f1' },
@@ -189,18 +196,46 @@
   }
 
   /**
-   * Default library: every pattern is exactly 40 hours in ANY 7-day window, so
-   * none of them builds in overtime for a non-exempt 7-day/40-hour work week.
-   * Tokens: 1 = the line's own shift, 0 = off, template id = that shift.
+   * The default rotation's base week (W = 12-hour shift, S = 4-hour shift, O = off).
+   * Each week the whole week moves one day later, so over 7 weeks everyone has every
+   * combination of days off, weekends included. This one never puts anyone on more
+   * than 3 days in a row, even across week boundaries.
+   */
+  const ROTATION_BASE = 'OWWOOWS';
+
+  /** 49-day cycle from a 7-day base week: week k, day d = base[(d - k) mod 7]. */
+  function rotationCycle(base = ROTATION_BASE) {
+    const b = String(base).toUpperCase().replace(/[^WSO]/g, '');
+    if (b.length !== 7) throw new Error('A rotation base week needs 7 days of W, S or O');
+    const tok = { W: 1, S: 's', O: 0 };
+    const out = [];
+    for (let k = 0; k < 7; k++) for (let d = 0; d < 7; d++) out.push(tok[b[mod(d - k, 7)]]);
+    return out;
+  }
+
+  /** Longest run of worked days in a cyclic token list. */
+  function cycleMaxRun(cycle) {
+    let best = 0, run = 0;
+    const L = cycle.length;
+    for (let i = 0; i < 2 * L; i++) { const t = cycle[i % L]; run = (!t || t === '0') ? 0 : run + 1; best = Math.max(best, run); }
+    return Math.min(best, L);
+  }
+
+  /**
+   * Default library: every pattern is exactly 40 hours in every work week, so none of
+   * them builds in overtime for a non-exempt 7-day/40-hour work week.
+   * Tokens: 1 = the line's own shift, 's' = the line's 4-hour shift, 0 = off,
+   * template id = that shift.
    */
   function defaultPatterns() {
-    const D12 = 't_d12', N12 = 't_n12', D8 = 't_d8', M8 = 't_m8', S4 = 't_s4';
+    const D12 = 't_d12', N12 = 't_n12', D8 = 't_d8', M8 = 't_m8';
     return [
+      { id: 'p_rot', name: 'Rotation: 3 x 12 + one 4-hr, days off move 1 day later each week', cycle: rotationCycle(), rotation: true, base: ROTATION_BASE },
       { id: 'p_52', name: '5 x 8 (5 on / 2 off)', cycle: [1, 1, 1, 1, 1, 0, 0] },
       { id: 'p_410', name: '4 x 10 (4 on / 3 off)', cycle: [1, 1, 1, 1, 0, 0, 0] },
       { id: 'p_12d8', name: '2 x 12 + 2 x 8 — days (D12 D12 D8 D8)', cycle: [D12, D12, 0, D8, D8, 0, 0] },
       { id: 'p_12n8', name: '2 x 12 + 2 x 8 — nights (N12 N12 M8 M8)', cycle: [N12, N12, 0, 0, M8, M8, 0] },
-      { id: 'p_3x12', name: '3 x 12 + 1 x 4 (three 12s plus a 4-hr peak)', cycle: [1, 1, 1, 0, S4, 0, 0] },
+      { id: 'p_3x12', name: '3 x 12 + 1 x 4, fixed days off', cycle: [1, 1, 1, 0, 's', 0, 0] },
       { id: 'p_pt2', name: 'Part-time: 2 days a week', cycle: [1, 1, 0, 0, 0, 0, 0] },
       { id: 'p_pt3', name: 'Part-time: 3 days a week', cycle: [1, 1, 1, 0, 0, 0, 0] },
     ];
@@ -273,6 +308,24 @@
       }
       s.center.schemaVersion = 4;
     }
+    // v5: rotation rules. Every 12-hour shift gets a 4-hour shift starting when it does
+    // (D12 0700 -> D4 0700-1100), and the 7-week rotation joins the pattern library.
+    if ((+s.center.schemaVersion || 1) < 5) {
+      for (const t of s.shiftTemplates.slice()) {
+        if (+t.hours !== 12 || (t.shortTemplateId && s.shiftTemplates.some((x) => x.id === t.shortTemplateId))) continue;
+        let short = s.shiftTemplates.find((x) => +x.hours === 4 && x.start === t.start);
+        if (!short) {
+          const code = /12/.test(t.code || '') ? t.code.replace('12', '4') : (t.code || 'S') + '-4';
+          let id = t.id + '_4';
+          while (s.shiftTemplates.some((x) => x.id === id)) id += '_';
+          short = { id, code, name: `${t.name || t.code} (4-hour)`, start: t.start, hours: 4, color: t.color || '#64748b' };
+          s.shiftTemplates.push(short);
+        }
+        t.shortTemplateId = short.id;
+      }
+      if (!s.patterns.some((p) => p.id === 'p_rot')) s.patterns.unshift(defaultPatterns()[0]);
+      s.center.schemaVersion = 5;
+    }
     s.version = 2;
     return s;
   }
@@ -281,7 +334,7 @@
     const by = (arr) => { const o = {}; for (const x of arr || []) o[x.id] = x; return o; };
     return {
       emp: by(state.employees), tpl: by(state.shiftTemplates), pat: by(state.patterns),
-      pos: by(state.positions), line: by(state.lines), excType: by(EXCEPTION_TYPES),
+      pos: by(state.positions), line: by(state.lines), excType: by(EXCEPTION_TYPES), jc: by(state.jobClasses),
     };
   }
 
@@ -376,6 +429,24 @@
     return true;
   }
 
+  const isShortTok = (t) => t === 's' || t === 'S';
+
+  /**
+   * A line's 4-hour shift: the line's own choice, else its job class's choice for that
+   * shift (e.g. peak hours), else the 4-hour shift paired with the 12 (same start).
+   */
+  function shortTemplateOf(line, ix, mainId) {
+    const tpl = ix.tpl;
+    if (line && line.shortTemplateId && tpl[line.shortTemplateId]) return tpl[line.shortTemplateId];
+    const main = tpl[mainId || (line && line.shiftTemplateId)];
+    const jc = line && ix.jc ? ix.jc[line.jobClassId] : null;
+    const pick = jc && jc.shortShift && main ? jc.shortShift[main.id] : null;
+    if (pick && tpl[pick]) return tpl[pick];
+    if (main && main.shortTemplateId && tpl[main.shortTemplateId]) return tpl[main.shortTemplateId];
+    if (main) { const same = Object.values(tpl).find((t) => +t.hours === 4 && t.start === main.start); if (same) return same; }
+    return Object.values(tpl).find((t) => +t.hours === 4) || null;
+  }
+
   /** The shift template a line works on a given day, or null if off. */
   function lineShiftOn(line, day, ix) {
     if (!lineActiveOn(line, day)) return null;
@@ -385,7 +456,25 @@
     const tok = pat.cycle[mod(day - anchor, pat.cycle.length)];
     if (!tok || tok === '0') return null;
     if (tok === 1 || tok === '1') return ix.tpl[line.shiftTemplateId] || null;
+    if (isShortTok(tok)) return shortTemplateOf(line, ix);
     return ix.tpl[tok] || null;
+  }
+
+  /** Length of the run of consecutive worked days through `day` (0 if not worked). */
+  function runThrough(days, day) {
+    if (!days.has(day)) return 0;
+    let a = day, b = day;
+    while (days.has(a - 1)) a--;
+    while (days.has(b + 1)) b++;
+    return b - a + 1;
+  }
+
+  /** Days someone is scheduled (lines, moves, imports, extra shifts), net of full-day leave. */
+  function workedDays(state, employeeId, fromDay, toDay, ix = index(state)) {
+    const wi = workIntervals(state, fromDay, toDay, { ix });
+    const set = new Set();
+    for (const iv of wi.intervals) if (iv.employeeId === employeeId && iv.end > iv.start && iv.day >= fromDay && iv.day <= toDay) set.add(iv.day);
+    return set;
   }
 
   /** Per employee, the date ranges an imported schedule covers (where it replaces their lines). */
@@ -449,7 +538,7 @@
       const start = d * DAY + parseTime(tpl.start);
       out.push({
         employeeId: emp.id, positionId: emp.positionId || certifications(emp)[0] || null, day: d, start,
-        end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: null, moveId: m.id, kind: 'regular',
+        end: start + Math.round(tpl.hours * 60), templateId: tpl.id, lineId: null, moveId: m.id, emergency: !!m.emergency, kind: 'regular',
       });
     }
     return out;
@@ -865,7 +954,7 @@
     let mins = 0;
     for (const tok of pattern.cycle) {
       if (!tok || tok === '0') continue;
-      const tpl = (tok === 1 || tok === '1') ? ix.tpl[templateId] : ix.tpl[tok];
+      const tpl = (tok === 1 || tok === '1') ? ix.tpl[templateId] : isShortTok(tok) ? shortTemplateOf(null, ix, templateId) : ix.tpl[tok];
       if (tpl) mins += tpl.hours * 60;
     }
     return pattern.cycle.length ? (mins / 60) * 7 / pattern.cycle.length : 0;
@@ -972,6 +1061,13 @@
         if (ov > 0) hours7 += ov / 60;
       }
       if (hours7 > (+c.maxHours7Days || 60)) warnings.push(`${round2(hours7)}h in 7 days`);
+      const maxRun = +c.maxConsecutiveDays || 0;
+      if (maxRun) {
+        const days = new Set(ivs.filter((iv) => iv.end > iv.start).map((iv) => iv.day));
+        days.add(d0);
+        const run = runThrough(days, d0);
+        if (run > maxRun) warnings.push(`${run} days in a row (limit ${maxRun})`);
+      }
       if (emp.status === 'trainee') warnings.push('Trainee (solo cleared)');
       const partTime = isPartTime(emp);
       let weekHours = null, cap = null;
@@ -1037,18 +1133,21 @@
     const L = pat ? pat.cycle.length : 7;
     const count = Math.max(1, +o.count || 1);
     const teams = Math.max(1, Math.min(+o.teams || 1, count));
-    const anchor = parseDate(o.anchorDate);
+    // A rotation starts on a work-week boundary and staggers people a whole week apart
+    // (7 groups over a 7-week cycle), so every work week stays at 40 hours.
+    const rot = !!(pat && pat.rotation && L % 7 === 0);
+    const anchor = rot ? workWeek(state, parseDate(o.anchorDate)).start : parseDate(o.anchorDate);
     const lines = [];
     const counters = {};
     for (let i = 0; i < count; i++) {
       const t = i % teams;
-      const offset = Math.floor(t * L / teams);
+      const offset = rot ? 7 * Math.floor(t * (L / 7) / teams) : Math.floor(t * L / teams);
       const letter = String.fromCharCode(65 + t);
       counters[t] = (counters[t] || 0) + 1;
       lines.push({
         id: uid('ln'), name: `${o.prefix || (tpl ? tpl.code : 'L')} ${letter}-${counters[t]}`,
         jobClassId: o.jobClassId || null, positionId: o.positionId || null, shiftTemplateId: o.shiftTemplateId, patternId: o.patternId,
-        anchorDate: fmtDate(anchor + offset), effectiveFrom: o.effectiveFrom || o.anchorDate, effectiveTo: null, employeeId: null,
+        anchorDate: fmtDate(anchor + offset), effectiveFrom: o.effectiveFrom || (rot ? fmtDate(anchor) : o.anchorDate), effectiveTo: null, employeeId: null,
       });
     }
     return lines;
@@ -1284,7 +1383,7 @@
       const pat = ix.pat[line.patternId];
       const toks = new Set(pat && pat.cycle ? pat.cycle : [1]);
       for (const t of toks) {
-        if (!t || t === '0') continue;
+        if (!t || t === '0' || isShortTok(t)) continue;
         add(t === 1 || t === '1' ? ix.tpl[line.shiftTemplateId] : ix.tpl[t]);
       }
     }
@@ -1358,36 +1457,34 @@
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 4 });
-    // Minimums are set per discipline.
+    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 5 });
+    // Minimums are set per discipline. Telecommunicators sit Law or Fire/EMS (most are
+    // certified on both); supervisors have their own console.
     s.positions = [
-      { id: 'pos_ct', name: 'Call-taker', isConsole: true, priority: 4 },
-      { id: 'pos_law', name: 'Law dispatch', isConsole: true, priority: 2 },
-      { id: 'pos_fire', name: 'Fire/EMS dispatch', isConsole: true, priority: 3 },
-      { id: 'pos_sup', name: 'Shift Supervisor', isConsole: false, priority: 1 },
+      { id: 'pos_law', name: 'Law', isConsole: true, priority: 2 },
+      { id: 'pos_fire', name: 'Fire/EMS', isConsole: true, priority: 3 },
+      { id: 'pos_sup', name: 'Supervisor', isConsole: false, priority: 1 },
     ];
     // Job classes hold authorized strength; one class can staff several consoles.
     s.jobClasses = [
-      { id: 'jc_ct', name: 'Call-taker', positionIds: ['pos_ct'], authorized: 18, authorizedPartTime: 3, maxOffPerDay: 1 },
-      { id: 'jc_tc', name: 'Telecommunicator', positionIds: ['pos_law', 'pos_fire'], authorized: 22, authorizedPartTime: 1, maxOffPerDay: 2 },
+      { id: 'jc_tc', name: 'Telecommunicator', positionIds: ['pos_law', 'pos_fire'], authorized: 18, authorizedPartTime: 3, maxOffPerDay: 2 },
       { id: 'jc_sup', name: 'Supervisor', positionIds: ['pos_sup'], authorized: 6, authorizedPartTime: 0, maxOffPerDay: 1 },
     ];
     const grid = (fn) => Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => fn(d, h)));
-    const weekendNight = (d, h) => (d === 5 || d === 6) && h >= 22;
     s.minimums = {
-      pos_ct: grid((d, h) => (h >= 14 && h < 22) || weekendNight(d, h) ? 4 : (h >= 10 && h < 14) || h >= 22 ? 3 : 2),
-      pos_law: grid(() => 2),
+      // Law call volume peaks late afternoon: a third law seat 1500-1900.
+      pos_law: grid((d, h) => (h >= 15 && h < 19 ? 3 : 2)),
       pos_fire: grid((d, h) => (h >= 7 && h < 23 ? 2 : 1)),
       pos_sup: grid(() => 1),
     };
 
-    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly', 'Iris', 'Jack', 'Leah', 'Miles', 'Nora', 'Omar', 'Paige', 'Reid', 'Sofia', 'Troy', 'Wade', 'Abby', 'Bianca', 'Caleb', 'Dana', 'Elias'];
-    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert', 'Bishop', 'Cole', 'Dunn', 'Fields', 'Greer', 'Hale', 'Ingram', 'Jordan', 'Kemp', 'Lyons', 'Mercer', 'Noble', 'Ortiz', 'Pham', 'Quinlan', 'Rowe'];
+    const first = ['Ava', 'Ben', 'Carla', 'Derek', 'Elena', 'Frank', 'Gina', 'Hector', 'Ivy', 'Jamal', 'Kara', 'Liam', 'Maya', 'Nate', 'Olivia', 'Pete', 'Quinn', 'Rosa', 'Sam', 'Tara', 'Uri', 'Vera', 'Wes', 'Xena', 'Yusuf', 'Zoe', 'Grant', 'Holly', 'Iris', 'Jack', 'Leah', 'Miles'];
+    const last = ['Adams', 'Brooks', 'Carter', 'Dalton', 'Ellis', 'Foster', 'Garcia', 'Hayes', 'Irwin', 'Jensen', 'Keller', 'Lopez', 'Monroe', 'Nash', 'Owens', 'Price', 'Quincy', 'Reed', 'Shaw', 'Turner', 'Underwood', 'Vance', 'Walsh', 'Xiong', 'Young', 'Zimmer', 'Pruitt', 'Lambert', 'Bishop', 'Cole', 'Dunn', 'Fields'];
     let n = 0;
     const mk = (positionId, extra = {}) => {
       const year = Math.min(2025, 1998 + Math.floor((n * 37) % 28));
       const sen = `${year}-${pad(1 + (n * 5) % 12)}-${pad(1 + (n * 7) % 27)}`;
-      const base = positionId === 'pos_sup' ? 30 : positionId === 'pos_ct' ? 18.5 : 20;
+      const base = positionId === 'pos_sup' ? 30 : 20;
       const e = Object.assign({
         id: uid('emp'), firstName: first[n % first.length], lastName: last[n % last.length], badge: String(1001 + n), positionId, status: 'active',
         hireDate: sen, seniorityDate: sen, hourlyRate: round2(base + Math.min(2026 - year, 20) * 0.55), soloCleared: true, qualifications: [],
@@ -1398,63 +1495,47 @@
       return e;
     };
 
+    // Everyone works the rotation: three 12s and one 4-hour shift a week (40 hours), days
+    // off one day later each week. People keep their shift; `week` staggers them.
     const anchor = parseDate('2026-01-04');
-    // Lines belong to a job class; no console, so nobody is tied to one by their line.
-    const classOfPos = { pos_ct: 'jc_ct', pos_law: 'jc_tc', pos_fire: 'jc_tc', pos_sup: 'jc_sup' };
-    const line = (positionId, tplId, patId, offset, name, emp) => s.lines.push({
-      id: uid('ln'), name, jobClassId: classOfPos[positionId], positionId: null, shiftTemplateId: tplId, patternId: patId,
+    const line = (jobClassId, tplId, patId, offset, name, emp) => s.lines.push({
+      id: uid('ln'), name, jobClassId, positionId: null, shiftTemplateId: tplId, patternId: patId,
       anchorDate: fmtDate(anchor + offset), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: emp ? emp.id : null,
     });
-    const shiftCode = { t_d8: 'D', t_e8: 'E', t_m8: 'M', t_p10: 'P10' };
-    // [position, prefix, template, pattern, offsets (staggered days off), qualifications]
-    const plan = [
-      ['pos_ct', 'CT', 't_d8', 'p_52', [0, 2, 4, 5], []],
-      ['pos_ct', 'CT', 't_e8', 'p_52', [0, 1, 2, 4, 5], []],
-      ['pos_ct', 'CT', 't_m8', 'p_52', [0, 2, 4], []],
-      ['pos_ct', 'CT', 't_p10', 'p_410', [0, 2, 4], []],
-      ['pos_law', 'LAW', 't_d8', 'p_52', [0, 2, 4, 5], ['pos_ct']],
-      ['pos_law', 'LAW', 't_e8', 'p_52', [0, 2, 4, 5], ['pos_ct']],
-      ['pos_law', 'LAW', 't_m8', 'p_52', [0, 2, 4], ['pos_ct']],
-      ['pos_fire', 'FIRE', 't_d8', 'p_52', [0, 2, 4], ['pos_ct']],
-      ['pos_fire', 'FIRE', 't_e8', 'p_52', [0, 2, 4], ['pos_ct']],
-      ['pos_fire', 'FIRE', 't_m8', 'p_52', [0, 2], ['pos_ct']],
-      ['pos_sup', 'SUP', 't_d8', 'p_52', [0, 2], ['pos_ct', 'pos_law', 'pos_fire']],
-      ['pos_sup', 'SUP', 't_e8', 'p_52', [0, 2], ['pos_ct', 'pos_law', 'pos_fire']],
-      ['pos_sup', 'SUP', 't_m8', 'p_52', [0], ['pos_ct', 'pos_law', 'pos_fire']],
-    ];
-    const byPos = { pos_ct: [], pos_law: [], pos_fire: [], pos_sup: [] };
-    const lineNo = {};
-    for (const [pos, pre, tpl, pat, offs, quals] of plan) {
-      offs.forEach((off) => {
-        // positionId = preferred console; certifications always include it.
-        const e = mk(pos, { jobClassId: classOfPos[pos], qualifications: [pos, ...quals] });
-        byPos[pos].push(e);
-        const prefix = classOfPos[pos] === 'jc_tc' ? 'TC' : pre;
-        const key = prefix + shiftCode[tpl];
-        lineNo[key] = (lineNo[key] || 0) + 1;
-        line(pos, tpl, pat, off, `${prefix} ${shiftCode[tpl]}-${lineNo[key]}`, e);
-      });
-    }
-    const ct = byPos.pos_ct, law = byPos.pos_law, fire = byPos.pos_fire, sups = byPos.pos_sup;
-    // Most telecommunicators work both law and fire/EMS; two are still law-only or fire-only.
-    for (const e of law) if (e !== law[3]) e.qualifications.push('pos_fire');
-    for (const e of fire) if (e !== fire[2]) e.qualifications.push('pos_law');
-    // Two senior call-takers are also certified on law.
-    ct[4].qualifications.push('pos_law'); ct[9].qualifications.push('pos_law');
-    // Trainees: one call-taker still with a CTO (doesn't count), one law dispatcher solo-cleared.
-    Object.assign(ct[1], { status: 'trainee', soloCleared: false, soloDate: fmtDate(today + 75), hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 18.5 });
-    Object.assign(law[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
-    // Part-time staff: straight time, capped hours. Two call-takers on part-time lines
-    // covering the weekend peak, one law dispatcher who only picks up open shifts.
-    const ptCt1 = mk('pos_ct', { jobClassId: 'jc_ct', qualifications: ['pos_ct'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
-    const ptCt2 = mk('pos_ct', { jobClassId: 'jc_ct', qualifications: ['pos_ct'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 19.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
-    const ptLaw = mk('pos_law', { jobClassId: 'jc_tc', employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_law', 'pos_fire', 'pos_ct'], notes: 'Retired full-timer; picks up open shifts' });
-    line('pos_ct', 't_e8', 'p_pt2', 5, 'CT PT-1', ptCt1);
-    line('pos_ct', 't_d8', 'p_pt3', 4, 'CT PT-2', ptCt2);
+    const day = [], night = [], sups = [];
+    // Telecommunicators: 9 on days, 8 on nights; preferred console alternates.
+    [0, 1, 2, 3, 4, 5, 6, 1, 4].forEach((wk, i) => {
+      const pos = i % 2 ? 'pos_fire' : 'pos_law';
+      const e = mk(pos, { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'] });
+      day.push(e); line('jc_tc', 't_d12', 'p_rot', 7 * wk, `TC D-${i + 1}`, e);
+    });
+    [0, 1, 2, 3, 4, 5, 6, 3].forEach((wk, i) => {
+      const pos = i % 2 ? 'pos_law' : 'pos_fire';
+      const e = mk(pos, { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'] });
+      night.push(e); line('jc_tc', 't_n12', 'p_rot', 7 * wk, `TC N-${i + 1}`, e);
+    });
+    // Supervisors: 3 on days, 2 on nights (one night line vacant).
+    [[0, 't_d12', 'D-1'], [2, 't_d12', 'D-2'], [5, 't_d12', 'D-3'], [1, 't_n12', 'N-1'], [4, 't_n12', 'N-2']].forEach(([wk, tpl, nm]) => {
+      const e = mk('pos_sup', { jobClassId: 'jc_sup', qualifications: ['pos_sup', 'pos_law', 'pos_fire'] });
+      sups.push(e); line('jc_sup', tpl, 'p_rot', 7 * wk, `SUP ${nm}`, e);
+    });
+    const tcs = day.concat(night);
+    const law = tcs.filter((e) => e.positionId === 'pos_law'), fire = tcs.filter((e) => e.positionId === 'pos_fire');
+    // Two are certified on one console only.
+    day[3].qualifications = ['pos_fire']; night[2].qualifications = ['pos_law'];
+    // Trainees: one on days still with a CTO (doesn't count), one on nights solo-cleared.
+    Object.assign(day[1], { status: 'trainee', soloCleared: false, soloDate: fmtDate(today + 75), hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 20 });
+    Object.assign(night[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
+    // Part-time telecommunicators: straight time, capped at 32 hours, never forced. One
+    // works two day shifts a week; two only pick up open shifts.
+    const pt1 = mk('pos_law', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 21, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
+    const pt2 = mk('pos_fire', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 21.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
+    const pt3 = mk('pos_law', { jobClassId: 'jc_tc', employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_law', 'pos_fire'], notes: 'Retired full-timer; picks up open shifts' });
+    void pt2; void pt3;
+    line('jc_tc', 't_d12', 'p_pt2', 5, 'TC PT-1', pt1);
     // Vacant lines on the books (authorized but unfilled).
-    line('pos_ct', 't_d8', 'p_52', 3, 'CT D-5', null);
-    line('pos_sup', 't_m8', 'p_52', 2, 'SUP M-2', null);
-    const tcs = ct.concat(law, fire);
+    line('jc_tc', 't_n12', 'p_rot', 7 * 5, 'TC N-9', null);
+    line('jc_sup', 't_n12', 'p_rot', 0, 'SUP N-3', null);
 
     const ix = index(s);
     const workDays = (emp, from, to) => regularShifts(s, from, to, ix).filter((r) => r.employeeId === emp.id).map((r) => r.day);
@@ -1503,14 +1584,14 @@
     if (dayWorkers[0]) ex(dayWorkers[0], today, 'sick', 'approved', { note: 'Called out 0430' });
     const fm = ex(fire[1], today - 3, 'family', 'approved', { endDate: fmtDate(today + 10), note: 'FMLA — intermittent block' });
     for (const d of workDays(fire[1], today - 3, today - 1)) fillFor({ ...fm, date: fmtDate(d), endDate: null }, 0.3);
-    const v1 = nextWork(ct[6], today + 2);
-    if (v1 != null) ex(ct[6], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
-    const t1 = nextWork(ct[12], today + 5);
-    if (t1 != null) ex(ct[12], t1, 'training', 'approved', { start: '14:00', hours: 4, note: 'CTO refresher class' });
+    const v1 = nextWork(night[6], today + 2);
+    if (v1 != null) ex(night[6], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
+    const t1 = nextWork(day[6], today + 5);
+    if (t1 != null) ex(day[6], t1, 'training', 'approved', { start: '13:00', hours: 4, note: 'CTO refresher class' });
     const p1 = nextWork(law[3], today + 6);
     if (p1 != null) ex(law[3], p1, 'vacation', 'pending', { endDate: fmtDate(p1 + 1), note: 'Family trip' });
-    const p2 = nextWork(ct[10], today + 9);
-    if (p2 != null) ex(ct[10], p2, 'comp', 'pending');
+    const p2 = nextWork(day[8], today + 9);
+    if (p2 != null) ex(day[8], p2, 'comp', 'pending');
     const p3 = nextWork(sups[1], today + 12);
     if (p3 != null) ex(sups[1], p3, 'vacation', 'pending');
     const v2 = nextWork(sups[2], today + 4);
@@ -1530,7 +1611,7 @@
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,
     defaultCenter, emptyState, migrate, index, empName, countable, qualifiedFor, isPartTime, partTimeCap, workWeek,
-    lineActiveOn, lineShiftOn, regularShifts, workIntervals, exceptionRange,
+    lineActiveOn, lineShiftOn, shortTemplateOf, isShortTok, runThrough, workedDays, rotationCycle, cycleMaxRun, ROTATION_BASE, regularShifts, workIntervals, exceptionRange,
     requiredFor, coverage, openings, slotReason,
     periodOf, fiscalYear, empHours, otCalc, otReport, otForecast, avgRate, slotCost,
     staffingSummary, requiredWeeklyHours, patternWeeklyHours, patternBuiltInOT, actualLeavePerEmployee,

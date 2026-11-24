@@ -11,6 +11,9 @@ function tiny({ min = 1, otPeriodDays = 7, otThresholdHours = 40, extraShiftsAlw
   Object.assign(s.center, { otPeriodDays, otThresholdHours, otPeriodStart: '2026-01-04', extraShiftsAlwaysOT, minRestHours: 8, maxShiftHours: 16 });
   s.positions = [{ id: 'tc', name: 'TC', authorized: 3 }];
   // A 42-hour pattern, kept here only to test built-in OT detection.
+  // These tests use 0600/1800 twelves.
+  s.shiftTemplates.find((t) => t.id === 't_d12').start = '06:00';
+  s.shiftTemplates.find((t) => t.id === 't_n12').start = '18:00';
   s.patterns.push({ id: 'p_pitman', name: 'Pitman', cycle: [1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0] });
   const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
   for (const row of grid) for (let h = 6; h < 18; h++) row[h] = min;
@@ -380,7 +383,7 @@ test('v4 conversion: job class on every employee, line and bid; console becomes 
   assert.equal(s.lines[0].positionId, null);        // nobody tied to a console by their line
   assert.equal(s.bids[0].jobClassId, 'tc');
   assert.equal(s.bids[0].lines[0].jobClassId, 'tc');
-  assert.equal(s.center.schemaVersion, 4);
+  assert.equal(s.center.schemaVersion, 5);
   // Runs once.
   s.employees[0].jobClassId = 'sv';
   assert.equal(P.migrate(s).employees[0].jobClassId, 'sv');
@@ -468,9 +471,29 @@ test('demo data builds and produces sane numbers', () => {
   const today = D('2026-11-23');
   const s = P.demoState(today);
   const sum = P.staffingSummary(s);
-  assert.deepEqual(sum.map((r) => r.jobClass.name), ['Call-taker', 'Telecommunicator', 'Supervisor']);
-  assert.equal(sum[0].vacancies, 3);
+  assert.deepEqual(sum.map((r) => r.jobClass.name), ['Telecommunicator', 'Supervisor']);
+  assert.equal(sum[0].vacancies, 1);
+  // Everyone full-time is on the rotation: 40 hours every work week, never 5 days in a row.
+  const wk = P.workWeek(s, today + 7).start;
+  const regs = P.regularShifts(s, wk, wk + 48);
+  for (const e of s.employees.filter((x) => !P.isPartTime(x))) {
+    const mine = regs.filter((r) => r.employeeId === e.id);
+    if (!mine.length) continue;
+    for (let w = 0; w < 7; w++) assert.equal(mine.filter((r) => r.day >= wk + 7 * w && r.day < wk + 7 * w + 7).reduce((t, r) => t + (r.end - r.start) / 60, 0), 40);
+    const days = new Set(mine.map((r) => r.day));
+    for (const d of days) assert.ok(P.runThrough(days, d) <= 3);
+  }
   const fc = P.otForecast(s, today);
   assert.ok(fc.ytd > 0 && fc.projection >= fc.ytd);
   assert.ok(!fc.full.totals.byReason['built-in'], 'demo rotation should build in no OT');
+});
+
+test('fill candidates warn when an extra shift makes more than 4 days in a row', () => {
+  const s = tiny();
+  s.center.maxConsecutiveDays = 4;
+  s.patterns.push({ id: 'p4', name: '4 on', cycle: [1, 1, 1, 1, 0, 0, 0] });
+  s.lines = [{ id: 'L', name: 'L', positionId: 'tc', shiftTemplateId: 't_d8', patternId: 'p4', anchorDate: '2026-01-04', effectiveFrom: '2026-01-04', employeeId: 'a' }];
+  const thu = D('2026-01-08'); // a works Sun-Wed
+  const c = P.fillCandidates(s, { positionId: 'tc', start: thu * 1440 + 7 * 60, end: thu * 1440 + 15 * 60 }).find((x) => x.emp.id === 'a');
+  assert.ok(c.warnings.some((w) => /5 days in a row/.test(w)));
 });

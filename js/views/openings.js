@@ -27,7 +27,7 @@
         ${Object.entries(byCause).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => App.kpi(App.reasonLabel(k), hrs(v) + ' h', 'open hours by cause')).join('')}
       </div>
       <div class="grid">
-        ${App.balancePanel(st)}
+        <div class="callout">Short shifts coming up? <a href="#/fix"><b>Fix coverage</b></a> suggests day-off moves and part-time shifts that cover them without overtime.</div>
         <div class="panel"><h2>Unfilled openings</h2>
         ${slots.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Console</th><th class="num">Hours</th><th>Need</th><th>Cause</th><th class="num">Est. OT cost</th><th></th></tr></thead><tbody>
           ${slots.map((s) => `<tr><td class="nowrap">${App.slotTime(s)}</td><td>${esc(App.posName(s.positionId))}</td><td class="num">${hrs(s.hours)}</td>

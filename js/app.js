@@ -267,7 +267,7 @@
 
   // -------------------------------------------------------------- router
   const NAV_SUP = [
-    ['dashboard', 'Dashboard'], ['schedule', 'Schedule'], ['coverage', 'Coverage'], ['consoles', 'Consoles'], ['openings', 'Openings'],
+    ['dashboard', 'Dashboard'], ['schedule', 'Schedule'], ['coverage', 'Coverage'], ['consoles', 'Consoles'], ['openings', 'Openings'], ['fix', 'Fix coverage'],
     ['overtime', 'Overtime'], ['bid', 'Lines & Bid'], ['vacation', 'Vacation Bid'], ['staff', 'Staff'], ['planner', 'Planner'], ['settings', 'Settings'],
   ];
   const NAV_EMP = [['me', 'My Schedule'], ['schedule', 'Schedule'], ['open', 'Open Shifts'], ['trades', 'Trades'], ['vacation', 'Vacation Bid'], ['bid', 'Shift Bid']];
