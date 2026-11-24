@@ -32,7 +32,7 @@
         ${slots.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Console</th><th class="num">Hours</th><th>Need</th><th>Cause</th><th class="num">Est. OT cost</th><th></th></tr></thead><tbody>
           ${slots.map((s) => `<tr><td class="nowrap">${App.slotTime(s)}</td><td>${esc(App.posName(s.positionId))}</td><td class="num">${hrs(s.hours)}</td>
             <td>${s.level > 1 ? `<span class="badge bad">${s.level}${['', 'st', 'nd', 'rd'][s.level] || 'th'} person</span>` : '<span class="badge bad">1 person</span>'}</td>
-            <td class="small">${s.causes.length ? s.causes.map((c) => `${esc(P.empName(App.emp(c.employeeId)))} <span class="badge">${esc(App.excType(c.type).abbr)}</span>`).join(' ') : '<span class="muted">Structural — vacancy, trainee or vacant line</span>'}</td>
+            <td class="small">${s.causes.length ? s.causes.map((c) => `${esc(P.empName(App.emp(c.employeeId)))} <span class="badge">${esc(App.excType(c.type).abbr)}</span>`).join(' ') : '<span class="muted">Structural — vacancy, trainee or vacant schedule slot</span>'}</td>
             <td class="num">${money(P.slotCost(st, s))}</td>
             <td><button class="btn sm primary" data-action="fill-slot" data-slot="${esc(s.id)}" data-from="${today}" data-to="${to}">Fill…</button></td></tr>`).join('')}
         </tbody></table></div>` : '<div class="empty">No openings — every hour meets minimum staffing.</div>'}
@@ -114,7 +114,7 @@
     const hidden = cands.length - cands.filter((c) => c.eligible).length;
     const d = Math.floor(F.start / P.DAY);
     return `
-      <div class="callout"><b>${App.slotTime(slot)}</b> · ${hrs(slot.hours)} h below minimum · ${slot.causes.length ? 'cause: ' + slot.causes.map((c) => esc(`${P.empName(App.emp(c.employeeId))} — ${c.label}`)).join('; ') : 'structural shortage (vacancy / trainee / vacant line)'}</div>
+      <div class="callout"><b>${App.slotTime(slot)}</b> · ${hrs(slot.hours)} h below minimum · ${slot.causes.length ? 'cause: ' + slot.causes.map((c) => esc(`${P.empName(App.emp(c.employeeId))} — ${c.label}`)).join('; ') : 'structural shortage (vacancy / trainee / vacant schedule slot)'}</div>
       <div class="form-grid">
         <div class="field"><label>Date</label><input type="date" name="fDate" value="${P.fmtDate(d)}" data-change="fill-param"></div>
         <div class="field"><label>Start</label><input type="time" name="fStart" value="${P.timeStr(F.start)}" data-change="fill-param"></div>

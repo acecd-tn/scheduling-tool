@@ -26,7 +26,7 @@
       ${App.levelNotice(st)}
       <div class="grid" style="margin-bottom:14px">
         <div class="panel"><h2>Job classes</h2>
-          <p class="small muted" style="margin:0">A job class is a budgeted position (e.g. Telecommunicator). Authorized counts, vacancies, part-time positions, the daily leave limit, lines and bids are all by job class.</p>
+          <p class="small muted" style="margin:0">A job class is a budgeted position (e.g. Telecommunicator). Authorized counts, vacancies, part-time positions, the daily leave limit, schedule slots and bids are all by job class.</p>
           <div class="table-wrap"><table class="positions"><thead><tr><th>Job class</th><th title="Consoles this job class staffs (for planning and bid previews)">Consoles staffed</th><th class="num" title="Full-time positions">Authorized</th><th class="num">Full-time</th><th class="num">Vacant</th><th class="num" title="Part-time positions (separate from full-time)">PT authorized</th><th class="num" title="Part-time staff (FTE at their weekly caps)">PT filled</th><th class="num" title="Active and solo-cleared staff">Countable</th><th title="Effective staffing: full-time filled minus extended leave and trainees not solo, plus part-time FTE, as % of authorized">Staffing level</th><th title="Most people in this job class on planned leave (vacation/comp/holiday) per day">Max off / day</th><th></th></tr></thead><tbody>
           ${sum.map((r) => `<tr><td><input value="${esc(r.jobClass.name)}" data-change="jc-field" data-id="${esc(r.jobClass.id)}" data-f="name"></td>
             <td class="small">${r.positionIds.map((pid) => `<span class="badge">${esc(App.posName(pid))}</span>`).join(' ') || '<span class="muted">none</span>'}</td>
@@ -58,7 +58,7 @@
           <p>If every vacant position's ~2,080 hrs/yr were backfilled with overtime: <b>${money(vacancyCost)}/yr</b> (at average rate × ${mult}).</p>
           <p class="small muted">A new hire at base rate costs roughly ${money(hireCost)}/yr in wages for the same hours (before benefits and training time).</p></div>
       </div>
-      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Badge</th><th>Name</th><th>Job class</th><th>Status</th><th>Seniority</th><th class="num">Rate</th><th>Current line</th><th>Certified consoles</th>${App.mode === 'server' ? '<th>Login</th>' : ''}<th></th></tr></thead><tbody>
+      <div class="panel"><div class="table-wrap"><table><thead><tr><th>Badge</th><th>Name</th><th>Job class</th><th>Status</th><th>Seniority</th><th class="num">Rate</th><th>Current schedule slot</th><th>Certified consoles</th>${App.mode === 'server' ? '<th>Login</th>' : ''}<th></th></tr></thead><tbody>
         ${emps.map((e) => { const l = lineOf(e); return `<tr class="${e.status === 'inactive' ? 'dim' : ''}"><td>${esc(e.badge)}</td><td>${esc(P.empName(e))}</td><td>${P.empClass(st, e) ? esc(P.empClass(st, e).name) : '<span class="badge bad">none</span>'}</td>
           <td>${statusBadge(e)}${P.isPartTime(e) ? ` <span class="badge info" title="Part-time, straight time, capped at ${P.partTimeCap(st, e)} h/week">PT ${P.partTimeCap(st, e)}h</span>` : ''}</td><td>${esc(e.seniorityDate || e.hireDate || '')}</td><td class="num">${money(+e.hourlyRate, 2)}</td>
           <td>${l ? esc(l.name) : '<span class="badge warn">none</span>'}</td><td class="small">${P.certifications(e).map((q) => `${esc(App.posName(q))}${q === e.positionId ? ' <span class="muted" title="Preferred console">★</span>' : ''}`).join(', ') || '<span class="badge warn">none</span>'}</td>

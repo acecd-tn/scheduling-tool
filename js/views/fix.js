@@ -85,7 +85,7 @@
         return item('training', i, text, sub);
       }).join('');
 
-      const left = plan.remaining.map((g) => `<li>${gapSentence(g)} <span class="small muted">about ${money(g.cost)}</span>${g.everyWeek ? ' <span class="badge warn" title="The same gap every week: the lines themselves don\'t cover it.">every week</span>' : ''}</li>`).join('');
+      const left = plan.remaining.map((g) => `<li>${gapSentence(g)} <span class="small muted">about ${money(g.cost)}</span>${g.everyWeek ? ' <span class="badge warn" title="The same gap every week: the schedule slots themselves don\'t cover it.">every week</span>' : ''}</li>`).join('');
       const everyWeek = plan.remaining.some((g) => g.everyWeek);
 
       const levelLine = plan.classes.filter((x) => P.classMembers(st, x.jobClass).length).map((x) => `<span class="badge">${esc(x.jobClass.name)}</span> ${App.levelBadge(x.level)}`).join(' &nbsp; ');
@@ -113,7 +113,7 @@
         <div class="panel"><h2>3. If nobody can: overtime</h2>
           ${plan.remaining.length ? `<p><b>${hrs(plan.hours)} h</b> still need overtime over the next ${weeks} weeks — about <b>${money(plan.cost)}</b>. <a class="btn sm" href="#/openings">Fill from Openings</a></p>
             <ul class="fix-list">${left}</ul>
-            ${everyWeek ? `<div class="callout warn">Some gaps repeat every week, so the lines themselves don't cover them. <button class="btn sm primary" data-action="fix-lines">Rebalance lines</button> keeps everyone on their shift and only changes which week of the rotation they start on.</div>` : ''}`
+            ${everyWeek ? `<div class="callout warn">Some gaps repeat every week, so the schedule slots themselves don't cover them. <button class="btn sm primary" data-action="fix-lines">Rebalance schedule slots</button> keeps everyone on their shift and only changes which week of the rotation they start on.</div>` : ''}`
           : '<p><span class="badge ok">None</span> Once the suggestions above are approved, every shift is covered without overtime.</p>'}
           ${crit.length ? `<div class="callout bad">${crit.map((x) => `<b>${esc(x.jobClass.name)}</b> is at <b>Critical</b> staffing: work to minimums only and spread gaps across days. Consider holding vacation (daily limit now ${P.maxOffFor(st, x.jobClass) ?? 'none'}${P.maxOffFor(st, x.jobClass) ? `; Settings → Staffing levels` : ''}).`).join('<br>')}</div>` : ''}
           ${short.length ? `<p class="small muted">${short.map((x) => esc(x.jobClass.name)).join(', ')}: Short staffing — part-timers before overtime, no relief margin.</p>` : ''}

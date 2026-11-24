@@ -1,4 +1,4 @@
-/* Import an existing schedule (Lines & Bid → Import schedule). */
+/* Import an existing schedule (Schedules & Bids → Import schedule). */
 (function () {
   'use strict';
   const { P, esc, hrs } = App;
@@ -76,8 +76,8 @@
           <div class="form-grid"><div class="field"><label>Name</label><input id="imp-name" value="${esc(u.name || built.record.name)}"></div></div>
           <ul>
             <li><b>${s.people}</b> people, <b>${s.shifts}</b> shifts, <b>${s.leave}</b> leave days, ${s.off} days off${s.unknown ? `, <b>${s.unknown}</b> cells with codes marked "not sure" (treated as off)` : ''}.</li>
-            <li>For these people from ${P.fmtDate(g.from)} to ${P.fmtDate(g.to)}, the imported schedule <b>replaces their lines</b>. Leave, call-outs and OT you enter afterwards work as usual.</li>
-            <li>From ${P.fmtDate(after)}, their lines take over again.${noLineAfter.length ? ` <span class="badge warn">${noLineAfter.length} have no line then</span> — set up lines or a shift bid effective ${P.fmtDate(after)}.` : ''}</li>
+            <li>For these people from ${P.fmtDate(g.from)} to ${P.fmtDate(g.to)}, the imported schedule <b>replaces their schedule slots</b>. Leave, call-outs and OT you enter afterwards work as usual.</li>
+            <li>From ${P.fmtDate(after)}, their schedule slots take over again.${noLineAfter.length ? ` <span class="badge warn">${noLineAfter.length} have no schedule slot then</span> — set up schedule slots or a shift bid effective ${P.fmtDate(after)}.` : ''}</li>
             ${s.leaveWithoutShift ? `<li><span class="badge warn">${s.leaveWithoutShift}</span> leave days for people with no usual shift: recorded, but without leave hours.</li>` : ''}
             ${s.skippedPeople ? `<li>${s.skippedPeople} row(s) skipped.</li>` : ''}
             ${overlaps.length ? `<li><span class="badge info">Replaces</span> days from ${overlaps.map((im) => esc(im.name)).join(', ')} for the same people and dates.</li>` : ''}
@@ -89,7 +89,7 @@
       ${history.map((im) => `<tr><td>${esc(im.name)}</td><td class="nowrap">${esc(im.from)} → ${esc(im.to)}</td><td class="num">${(im.employeeIds || []).length}</td>
         <td class="num">${(st.assignments || []).filter((a) => a.importId === im.id && !a.leave).length}</td><td class="num">${st.exceptions.filter((x) => x.importId === im.id).length}</td>
         <td class="small">${esc(new Date(im.createdAt).toLocaleString())}</td><td><button class="btn sm danger" data-action="imp-undo" data-id="${im.id}">Undo</button></td></tr>`).join('')}
-      </tbody></table><p class="small muted">Undo removes that import's days and leave; those people's lines apply again for those dates.</p></div>` : '';
+      </tbody></table><p class="small muted">Undo removes that import's days and leave; those people's schedule slots apply again for those dates.</p></div>` : '';
 
     return `<div class="grid">${step1}${rest}${hist}</div>`;
   };
@@ -139,13 +139,13 @@
     const built = I.buildImport(st, u.grid, u.match, u.codeMap, { name: u.name });
     const dup = Object.values(u.match).filter(Boolean);
     if (new Set(dup).size !== dup.length) return App.toast('Someone is matched to two rows — fix the "matched twice" rows first', true);
-    App.confirm(`Import "${esc(built.record.name)}": ${built.stats.people} people, ${built.stats.shifts} shifts and ${built.stats.leave} leave days from ${built.record.from} to ${built.record.to}? Their lines won't apply on those dates.`, () => {
+    App.confirm(`Import "${esc(built.record.name)}": ${built.stats.people} people, ${built.stats.shifts} shifts and ${built.stats.leave} leave days from ${built.record.from} to ${built.record.to}? Their schedule slots won't apply on those dates.`, () => {
       App.commit((s) => I.applyImport(s, built), `Imported ${built.stats.people} people`);
       App.ui.imp = fresh();
     }, 'Import');
   };
   App.actions['imp-undo'] = (el) => {
     const im = (App.S.scheduleImports || []).find((x) => x.id === el.dataset.id);
-    App.confirm(`Undo "${esc(im ? im.name : '')}"? Its days and leave are removed and people's lines apply again for ${esc(im ? im.from + ' to ' + im.to : 'those dates')}.`, () => App.commit((s) => I.undoImport(s, el.dataset.id), 'Import undone'), 'Undo import');
+    App.confirm(`Undo "${esc(im ? im.name : '')}"? Its days and leave are removed and people's schedule slots apply again for ${esc(im ? im.from + ' to ' + im.to : 'those dates')}.`, () => App.commit((s) => I.undoImport(s, el.dataset.id), 'Import undone'), 'Undo import');
   };
 })();

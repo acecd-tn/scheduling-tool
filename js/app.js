@@ -183,8 +183,8 @@
     if (!App.isSup()) return '';
     const ch = App.levelChanges(st);
     if (!ch.length) return '';
-    return `<div class="callout ${ch.some((x) => x.lvl.level === 'critical') ? 'bad' : 'warn'}" style="margin-bottom:14px">${ch.map((x) => `<div><b>${esc(x.jc.name)}</b> staffing is now ${App.levelBadge(x.lvl)} (was ${esc((st.center.levelSeen || {})[x.jc.id] || 'normal')}). ${x.lvl.level === 'normal' ? 'Consider restoring the relief margin and vacation limit.' : 'Consider a line review or re-bid (Lines & Bid → Suggest lines).'}</div>`).join('')}
-      <div style="margin-top:6px"><button class="btn sm" data-action="go" data-to="bid">Review lines</button> <button class="btn sm" data-action="level-ack">Got it</button></div></div>`;
+    return `<div class="callout ${ch.some((x) => x.lvl.level === 'critical') ? 'bad' : 'warn'}" style="margin-bottom:14px">${ch.map((x) => `<div><b>${esc(x.jc.name)}</b> staffing is now ${App.levelBadge(x.lvl)} (was ${esc((st.center.levelSeen || {})[x.jc.id] || 'normal')}). ${x.lvl.level === 'normal' ? 'Consider restoring the relief margin and vacation limit.' : 'Consider a schedule slot review or re-bid (Schedules & Bids → Rebalance schedule slots).'}</div>`).join('')}
+      <div style="margin-top:6px"><button class="btn sm" data-action="go" data-to="bid">Review schedule slots</button> <button class="btn sm" data-action="level-ack">Got it</button></div></div>`;
   };
   App.actions['level-ack'] = () => App.commit((s) => {
     s.center.levelSeen = Object.assign({}, s.center.levelSeen);
@@ -268,7 +268,7 @@
   // -------------------------------------------------------------- router
   const NAV_SUP = [
     ['dashboard', 'Dashboard'], ['schedule', 'Schedule'], ['coverage', 'Coverage'], ['consoles', 'Consoles'], ['openings', 'Openings'], ['fix', 'Fix coverage'],
-    ['overtime', 'Overtime'], ['bid', 'Lines & Bid'], ['vacation', 'Vacation Bid'], ['staff', 'Staff'], ['planner', 'Planner'], ['settings', 'Settings'],
+    ['overtime', 'Overtime'], ['bid', 'Schedules & Bids'], ['vacation', 'Vacation Bid'], ['staff', 'Staff'], ['planner', 'Planner'], ['settings', 'Settings'],
   ];
   const NAV_EMP = [['me', 'My Schedule'], ['schedule', 'Schedule'], ['open', 'Open Shifts'], ['trades', 'Trades'], ['vacation', 'Vacation Bid'], ['bid', 'Shift Bid']];
   const nav = () => App.isSup() ? NAV_SUP : NAV_EMP;

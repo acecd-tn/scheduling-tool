@@ -47,7 +47,7 @@
         return { e, cls: clsId(e), ln, tpl, key: tpl ? P.parseTime(tpl.start) : 9999 };
       }).sort((a, b) => (clsOrder[a.cls] ?? 99) - (clsOrder[b.cls] ?? 99) || a.key - b.key || String(a.ln ? a.ln.name : 'zz').localeCompare(b.ln ? b.ln.name : 'zz'));
 
-      const head = `<tr><th class="name">Employee / line</th>${days.map((d) => `<th class="${d === today ? 'today' : ''} ${[0, 6].includes(P.dow(d)) ? 'wknd' : ''}">${P.DOW[P.dow(d)]}<br>${P.fmtDate(d).slice(5).replace('-', '/')}</th>`).join('')}</tr>`;
+      const head = `<tr><th class="name">Employee / schedule slot</th>${days.map((d) => `<th class="${d === today ? 'today' : ''} ${[0, 6].includes(P.dow(d)) ? 'wknd' : ''}">${P.DOW[P.dow(d)]}<br>${P.fmtDate(d).slice(5).replace('-', '/')}</th>`).join('')}</tr>`;
       let body = '', lastCls = null;
       for (const r of rows) {
         if (r.cls !== lastCls) {
@@ -57,7 +57,7 @@
         const flags = [];
         if (r.e.status === 'trainee') flags.push(`<span class="badge ${r.e.soloCleared ? 'info' : 'warn'}" title="${r.e.soloCleared ? 'Solo cleared' : 'With CTO — not counted'}">T</span>`);
         if (r.e.status === 'leave') flags.push('<span class="badge bad">LOA</span>');
-        body += `<tr><td class="name">${esc(P.empName(r.e))} ${flags.join('')}<span class="small muted">${impWin[r.e.id] && impWin[r.e.id].some(([a, b]) => a <= to && b >= from) ? '<span class="badge info" title="Imported schedule for some of these dates">imported</span> ' : ''}${r.ln ? esc(r.ln.name) : impWin[r.e.id] ? '' : 'no line'}</span></td>`;
+        body += `<tr><td class="name">${esc(P.empName(r.e))} ${flags.join('')}<span class="small muted">${impWin[r.e.id] && impWin[r.e.id].some(([a, b]) => a <= to && b >= from) ? '<span class="badge info" title="Imported schedule for some of these dates">imported</span> ' : ''}${r.ln ? esc(r.ln.name) : impWin[r.e.id] ? '' : 'no schedule slot'}</span></td>`;
         for (const d of days) {
           const k = r.e.id + '|' + d;
           body += `<td class="cell ${[0, 6].includes(P.dow(d)) ? 'wknd' : ''}" data-action="day-cell" data-emp="${r.e.id}" data-day="${d}">${cellHtml(regBy[k], excBy[k], fillBy[k], ix)}</td>`;
@@ -95,7 +95,7 @@
         <span><span class="shift leave">S</span>call-out</span><span><span class="shift leave planned">V</span>planned leave</span>
         <span><span class="shift leave worked">T</span>training / trade</span><span><span class="shift pending" style="background:#64748b">D12</span>pending request</span><span><span class="shift ot">OT</span>overtime</span><span><span class="shift moved" style="background:#64748b">D12</span>moved day off</span><span><span class="shift moved emergency" style="background:#64748b">D12!</span>5 in a row (emergency)</span>
       </div>
-      <div class="table-wrap" style="max-height:72vh"><table class="sched"><thead>${head}</thead><tbody>${body || `<tr><td class="empty" colspan="${days.length + 1}">No employees yet — add staff and lines first.</td></tr>`}</tbody></table></div></div>`;
+      <div class="table-wrap" style="max-height:72vh"><table class="sched"><thead>${head}</thead><tbody>${body || `<tr><td class="empty" colspan="${days.length + 1}">No employees yet — add staff and schedule slots first.</td></tr>`}</tbody></table></div></div>`;
     },
   };
 
@@ -154,7 +154,7 @@
     const reg = regs[0];
     const statusBadge = (s) => `<span class="badge ${s === 'approved' ? 'ok' : s === 'pending' ? 'warn' : 'bad'}">${s}</span>`;
     return `
-      <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · line ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
+      <p>${reg ? `Scheduled <b>${esc(ix.tpl[reg.templateId].name)}</b> ${P.mil(reg.start)}–${P.mil(reg.end)} · schedule slot ${esc((ix.line[reg.lineId] || {}).name || '')}` : '<span class="muted">Not scheduled (day off)</span>'}
         · ${esc((P.empClass(st, emp) || {}).name || 'no job class')} · certified: ${P.certifications(emp).map((q) => esc(App.posName(q))).join(', ') || 'none'}</p>
       ${(st.shiftMoves || []).filter((m) => m.status === 'approved' && m.employeeId === empId && (P.parseDate(m.offDate) === day || P.parseDate(m.workDate) === day)).map((m) => `<div class="callout">Day-off move: off ${P.shortDate(P.parseDate(m.offDate))}, works ${P.shortDate(P.parseDate(m.workDate))} instead.${m.emergency ? ' <span class="badge bad">5 days in a row — emergency</span>' : ''} <button class="btn sm" data-action="bal-undo" data-id="${m.id}">Undo</button></div>`).join('')}
       ${(() => {

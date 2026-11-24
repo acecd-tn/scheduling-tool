@@ -59,7 +59,7 @@
       <button class="btn sm" data-action="plan-add" style="margin-top:8px">+ Scenario</button>
       <div class="section small muted">
         <p><b>Relief factor</b> = hours in a year (8,760) ÷ net available hours per employee: how many people it takes to staff one seat 24/7.</p>
-        <p><b>FTE needed</b> = minimum person-hours per year ÷ net available hours per employee. It assumes coverage can be perfectly distributed, so treat it as a floor — use the bid tool's coverage preview to check actual line placement.</p>
+        <p><b>FTE needed</b> = minimum person-hours per year ÷ net available hours per employee. It assumes coverage can be perfectly distributed, so treat it as a floor — use the bid tool's coverage preview to check actual schedule slot placement.</p>
         <p><b>Built-in OT</b> applies your current OT rule (${st.center.otThresholdHours} h per ${st.center.otPeriodDays} days) to the pattern. Any pattern over 40 h in a work week builds in overtime for non-exempt staff. If it is over 40 h in only some weeks, which day the rotation starts matters (range shown = best–worst alignment; the cost column uses the best).</p>
       </div></div>`;
     },

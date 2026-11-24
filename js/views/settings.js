@@ -74,7 +74,7 @@
           <label class="check">${chk('offerTraining')} Offer 4-hour shifts for training when coverage stays at minimum without overtime</label>
           <h3 style="margin-top:12px">When the 4-hour shift is worked</h3>
           ${shortRows ? `<table class="small"><thead><tr><th>Job class</th><th>Shift</th><th>4-hour shift</th></tr></thead><tbody>${shortRows}</tbody></table>
-            <p class="small muted">A single line can use its own 4-hour shift (Lines &amp; Bid → edit the line).</p>` : '<p class="small muted">Shows once people hold 12-hour lines.</p>'}
+            <p class="small muted">A single schedule slot can use its own 4-hour shift (Schedules &amp; Bids → edit the schedule slot).</p>` : '<p class="small muted">Shows once people hold 12-hour schedule slots.</p>'}
           <h3 style="margin-top:12px">Part-time staff</h3>
           <label class="check">${chk('partTimeFirst')} Offer open shifts to part-timers first (straight time, before full-time OT)</label>
           <div class="form-grid"><div class="field"><label>Default weekly cap (h)</label>${num('partTimeDefaultCap', 0.5)}</div></div>
@@ -122,7 +122,7 @@
           </div>
           <label class="check">${chk('extraShiftsAlwaysOT')} Extra (non-scheduled) shifts are always paid as OT</label>
           <label class="check">${chk('leaveCountsTowardOT')} Paid leave counts toward the OT threshold</label>
-          <p class="small muted">Non-exempt: a 7-day / 40-hour work week, paid leave not counted. Lines always start on a period start so every week is 40 hours.</p>
+          <p class="small muted">Non-exempt: a 7-day / 40-hour work week, paid leave not counted. Schedule slots always start on a period start so every week is 40 hours.</p>
           <div class="field" style="margin-top:8px"><label>Mandatory (forced) OT order</label><select data-change="center" data-k="forceOrderBasis">
             <option value="lastOT" ${c.forceOrderBasis !== 'lastForced' ? 'selected' : ''}>Longest since any OT worked, then least senior</option>
             <option value="lastForced" ${c.forceOrderBasis === 'lastForced' ? 'selected' : ''}>Longest since last forced, then least senior</option></select></div>
@@ -133,9 +133,9 @@
             <div class="field"><label>Max continuous hours</label>${num('maxShiftHours', 0.5)}</div>
             <div class="field"><label>Warn above hours in 7 days</label>${num('maxHours7Days', 1)}</div>
           </div>
-          <h3 style="margin-top:12px">Lines</h3>
+          <h3 style="margin-top:12px">Schedule slots</h3>
           <div class="form-grid">
-            <div class="field"><label>Line tools build</label><select data-change="center" data-k="lineMode"><option value="rotation" ${c.lineMode !== 'weekly' ? 'selected' : ''}>The rotation (3 × 12 + one 4-hour)</option><option value="weekly" ${c.lineMode === 'weekly' ? 'selected' : ''}>Fixed 7-day patterns (8s, 10s...)</option></select></div>
+            <div class="field"><label>Schedule slot tools build</label><select data-change="center" data-k="lineMode"><option value="rotation" ${c.lineMode !== 'weekly' ? 'selected' : ''}>The rotation (3 × 12 + one 4-hour)</option><option value="weekly" ${c.lineMode === 'weekly' ? 'selected' : ''}>Fixed 7-day patterns (8s, 10s...)</option></select></div>
             <div class="field"><label>Rotation base week (Sun → Sat)</label><input value="${esc(base)}" data-change="rot-base" maxlength="7" style="font-family:monospace;width:110px" title="7 letters: W = 12-hour, S = 4-hour, O = off"></div>
           </div>
           <p class="small muted">The base week sets where the 12s, the 4-hour shift and days off fall; each later week moves it one day. It must keep within the days-in-a-row limit.</p>
@@ -163,24 +163,24 @@
               <td class="small muted">${lv === 'normal' ? 'Keeps the relief margin' : lv === 'short' ? 'Margin 0; part-timers before OT' : 'Minimums only; spreads gaps evenly; lists OT needed'}</td></tr>`; }).join('')}
           </tbody></table>
           <label class="check">${chk('levelIncludesPartTime')} Part-time FTE counts toward the staffing level</label>
-          <div class="field" style="margin-top:6px"><label>Part-timers' scheduled lines</label><select data-change="center" data-k="partTimeOnLines">
+          <div class="field" style="margin-top:6px"><label>Part-timers' schedule slots</label><select data-change="center" data-k="partTimeOnLines">
             <option value="count" ${c.partTimeOnLines !== 'extra' ? 'selected' : ''}>Count toward minimums</option>
             <option value="extra" ${c.partTimeOnLines === 'extra' ? 'selected' : ''}>Are extra, on top of minimums (shifts they pick up still count)</option></select></div>
         </div>
       </div>
       <div class="grid g2" style="margin-top:14px">
         <div><h3>Shift templates <button class="btn sm" data-action="tpl-add">+ Shift</button></h3>
-          <div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Start</th><th>Hours</th><th title="The 4-hour shift a line on this shift works (12-hour shifts)">4-hour shift</th><th>Color</th><th></th></tr></thead><tbody>
+          <div class="table-wrap"><table><thead><tr><th>Code</th><th>Name</th><th>Start</th><th>Hours</th><th title="The 4-hour shift a schedule slot on this shift works (12-hour shifts)">4-hour shift</th><th>Color</th><th></th></tr></thead><tbody>
           ${st.shiftTemplates.map((t) => `<tr><td><input value="${esc(t.code)}" data-change="tpl" data-id="${t.id}" data-f="code" style="width:70px"></td><td><input value="${esc(t.name)}" data-change="tpl" data-id="${t.id}" data-f="name"></td>
             <td><input type="time" value="${esc(t.start)}" data-change="tpl" data-id="${t.id}" data-f="start"></td><td><input type="number" step="0.25" min="0.25" max="24" value="${t.hours}" data-change="tpl" data-id="${t.id}" data-f="hours" style="width:70px"></td>
             <td>${+t.hours >= 8 ? `<select data-change="tpl" data-id="${t.id}" data-f="shortTemplateId"><option value="">—</option>${App.opts(fourH.map((x) => ({ id: x.id, name: `${x.code} ${x.start.replace(':', '')}` })), t.shortTemplateId || '')}</select>` : ''}</td>
             <td><input type="color" value="${esc(t.color)}" data-change="tpl" data-id="${t.id}" data-f="color" style="width:44px;padding:0"></td><td><button class="btn sm danger" data-action="tpl-del" data-id="${t.id}">✕</button></td></tr>`).join('')}
           </tbody></table></div></div>
         <div><h3>Patterns <button class="btn sm" data-action="pat-add">+ Pattern</button></h3>
-          <p class="small muted">One token per day: <b>W</b> = the line's shift, <b>S</b> = the line's 4-hour shift, <b>O</b> = off, or a shift code (e.g. <b>N12</b>).</p>
+          <p class="small muted">One token per day: <b>W</b> = the schedule slot's shift, <b>S</b> = the schedule slot's 4-hour shift, <b>O</b> = off, or a shift code (e.g. <b>N12</b>).</p>
           <div class="table-wrap"><table><thead><tr><th>Name</th><th>Days</th><th>Cycle</th><th></th></tr></thead><tbody>
           ${st.patterns.map((p) => `<tr><td><input value="${esc(p.name)}" data-change="pat-name" data-id="${p.id}"></td><td class="num">${p.cycle.length}</td>
-            <td>${p.rotation ? `<span class="small muted">Built from the base week (Advanced → Lines)</span>` : `<input value="${esc(tokStr(st, p.cycle))}" data-change="pat-cycle" data-id="${p.id}" style="min-width:260px;font-family:monospace">`}</td><td>${p.rotation ? '' : `<button class="btn sm danger" data-action="pat-del" data-id="${p.id}">✕</button>`}</td></tr>`).join('')}
+            <td>${p.rotation ? `<span class="small muted">Built from the base week (Advanced → Schedule slots)</span>` : `<input value="${esc(tokStr(st, p.cycle))}" data-change="pat-cycle" data-id="${p.id}" style="min-width:260px;font-family:monospace">`}</td><td>${p.rotation ? '' : `<button class="btn sm danger" data-action="pat-del" data-id="${p.id}">✕</button>`}</td></tr>`).join('')}
           </tbody></table></div></div>
       </div>
       </details>
@@ -264,7 +264,7 @@
     const st = S();
     const id = el.dataset.id;
     const used = st.lines.some((l) => l.shiftTemplateId === id || l.shortTemplateId === id) || st.patterns.some((p) => p.cycle.includes(id)) || st.shiftTemplates.some((t) => t.shortTemplateId === id) || st.jobClasses.some((jc) => Object.values(jc.shortShift || {}).includes(id));
-    if (used) return App.toast('This shift is used by a line or pattern', true);
+    if (used) return App.toast('This shift is used by a schedule slot or pattern', true);
     App.commit((s) => { s.shiftTemplates = s.shiftTemplates.filter((t) => t.id !== el.dataset.id); });
   };
   App.changes['pat-name'] = (el) => App.silent((s) => { s.patterns.find((p) => p.id === el.dataset.id).name = el.value; });
@@ -274,7 +274,7 @@
   };
   App.actions['pat-add'] = () => App.commit((s) => s.patterns.push({ id: P.uid('p'), name: 'New pattern', cycle: [1, 1, 1, 1, 1, 0, 0] }));
   App.actions['pat-del'] = (el) => {
-    if (S().lines.some((l) => l.patternId === el.dataset.id)) return App.toast('This pattern is used by a line', true);
+    if (S().lines.some((l) => l.patternId === el.dataset.id)) return App.toast('This pattern is used by a schedule slot', true);
     App.commit((s) => { s.patterns = s.patterns.filter((p) => p.id !== el.dataset.id); });
   };
 

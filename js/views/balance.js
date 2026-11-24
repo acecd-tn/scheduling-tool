@@ -1,11 +1,11 @@
-/* Suggest lines (Lines & Bid, and Fix coverage → Rebalance lines). Day-to-day balancing is on the Fix coverage page. */
+/* Suggest lines (Schedules & Bids, and Fix coverage → Rebalance schedule slots). Day-to-day balancing is on the Fix coverage page. */
 (function () {
   'use strict';
   const { P, esc, money, hrs } = App;
   const B = window.PSAPBalance;
   const S = () => App.S;
 
-  // ------------------------------------------------------- suggest lines
+  // ------------------------------------------------------- suggest schedule slots
   App.ui.sug = null; // { bidId, jobClassId, headcount, templateIds, margin, effective, result }
 
   /** 7 rows (Sun..Sat) × 24 hours from the scheduling-day start: staffed / minimum. */
@@ -40,7 +40,7 @@
       templateIds: st.shiftTemplates.filter((t) => used.has(t.id) || [8, 10, 12].includes(+t.hours)).map((t) => t.id),
       effective: P.fmtDate(eff), result: null,
     };
-    App.modal({ title: bid ? `Suggest lines — ${bid.name}` : 'Rebalance lines', wide: true, body: suggestBody, footer: '<button class="btn" data-action="modal-close">Close</button>' });
+    App.modal({ title: bid ? `Suggest schedule slots — ${bid.name}` : 'Rebalance schedule slots', wide: true, body: suggestBody, footer: '<button class="btn" data-action="modal-close">Close</button>' });
   };
 
   function suggestBody() {
@@ -68,25 +68,25 @@
       res = `<div class="kpis" style="margin-top:12px">
           ${App.kpi('Uncovered h / week', `${hrs(r.before.uncov)} → <b>${hrs(r.after.uncov)}</b>`, rot ? 'average over the 7-week rotation' : 'before → suggested', r.after.uncov ? 'bad' : 'ok')}
           ${App.kpi(`Above ${r.margin ? 'margin' : 'minimum'} h / week`, `${hrs(r.before.surplus)} → <b>${hrs(r.after.surplus)}</b>`, `relief margin ${r.margin} per console-hour`)}
-          ${App.kpi('Hours: lines vs minimum', `${hrs(r.lineHours)} / ${hrs(r.minHours)}`, `${r.headcount} × 40 h lines a week`, r.lineHours < r.minHours ? 'bad' : '')}
+          ${App.kpi('Hours: schedule slots vs minimum', `${hrs(r.lineHours)} / ${hrs(r.minHours)}`, `${r.headcount} × 40 h schedule slots a week`, r.lineHours < r.minHours ? 'bad' : '')}
         </div>
         ${r.lineHours < r.minHours ? `<div class="callout bad">${r.headcount} people × 40 h can't reach ${hrs(r.minHours)} minimum person-hours a week: about ${hrs(r.minHours - r.lineHours)} h/week needs part-timers, overtime or more staff. Gaps are spread as evenly as possible.</div>` : ''}
         <div class="grid g2">
           <div><h3>Suggested${rot ? ' — lowest week of the 7' : ''}</h3>${weekHeat(st, r.after.v, r.min, r.target)}</div>
-          <div><h3>Current lines${rot ? ' — lowest week of the 7' : ''}</h3>${weekHeat(st, r.before.v, r.min, r.target)}</div>
+          <div><h3>Current schedule slots${rot ? ' — lowest week of the 7' : ''}</h3>${weekHeat(st, r.before.v, r.min, r.target)}</div>
         </div>
         <div class="legend" style="margin:6px 0 10px"><span class="badge bad">below minimum</span><span class="badge warn">at minimum / within margin</span><span class="badge ok">above margin</span></div>
-        ${u.bidId ? `<h3>Suggested lines (${r.lines.length})</h3>
-          <table><thead><tr><th class="num">Lines</th><th>Shift · pattern</th><th>Days off the first week</th></tr></thead><tbody>
+        ${u.bidId ? `<h3>Suggested schedule slots (${r.lines.length})</h3>
+          <table><thead><tr><th class="num">Schedule slots</th><th>Shift · pattern</th><th>Days off the first week</th></tr></thead><tbody>
           ${Object.entries(groups).map(([k, ls]) => `<tr><td class="num">${ls.length}</td><td>${esc(k)}</td><td class="small">${ls.map(offDays).join(' · ')}</td></tr>`).join('')}
           </tbody></table>`
         : `<h3>Who changes (${r.changes.length})</h3>
           ${r.changes.length ? `<table><thead><tr><th>Employee</th><th>Shift</th><th>Days off the week of ${P.shortDate(r.start)}</th></tr></thead><tbody>
             ${r.changes.map((c) => `<tr><td>${esc(P.empName(App.emp(c.employeeId)))}</td><td>${esc(tl(c.to.tplId))}${c.to.tplId !== c.from.tplId ? ` <span class="badge warn">was ${esc(tl(c.from.tplId))}</span>` : ''}</td><td>${esc(c.from.off)} → <b>${esc(c.to.off)}</b></td></tr>`).join('')}
-          </tbody></table>` : '<p class="small muted">Nobody needs to change: the current lines are already the best fit.</p>'}
-          <p class="small muted">${kept} people keep their line exactly. ${rot ? 'Everyone keeps their shift; only the week of the rotation they start on changes, so their days off still move one day later each week.' : ''}${r.lines.some((l) => !l.employeeId) ? ` ${r.lines.filter((l) => !l.employeeId).length} vacant line(s) included.` : ''}</p>`}
+          </tbody></table>` : '<p class="small muted">Nobody needs to change: the current schedule slots are already the best fit.</p>'}
+          <p class="small muted">${kept} people keep their schedule slot exactly. ${rot ? 'Everyone keeps their shift; only the week of the rotation they start on changes, so their days off still move one day later each week.' : ''}${r.lines.some((l) => !l.employeeId) ? ` ${r.lines.filter((l) => !l.employeeId).length} vacant schedule slot(s) included.` : ''}</p>`}
         <div class="section toolbar">
-          ${u.bidId ? `<button class="btn primary" data-action="sug-to-bid">Use these lines in the bid</button><span class="small muted">Replaces the bid's lines and clears picks.</span>`
+          ${u.bidId ? `<button class="btn primary" data-action="sug-to-bid">Use these schedule slots in the bid</button><span class="small muted">Replaces the bid's schedule slots and clears picks.</span>`
           : `<label class="small muted" style="margin:0">Starting <input type="date" id="sug-eff" value="${esc(P.fmtDate(r.start))}"></label>
              <button class="btn primary" data-action="sug-to-lines" ${r.changes.length || r.lines.some((l) => !l.employeeId) ? '' : 'disabled'}>Approve and notify</button>
              <button class="btn" data-action="sug-new-bid">Start a shift bid instead</button>`}
@@ -94,16 +94,16 @@
         ${!u.bidId ? `<p class="small muted">Starts on a work-week boundary so every week stays at 40 hours. ${+st.center.dayOffNoticeDays ? `Your notice period is ${st.center.dayOffNoticeDays} days.` : ''} Only the people listed are notified.</p>` : ''}
         ${u.changeover ? `<div class="callout warn">${esc(u.changeover)}</div>` : ''}`;
     }
-    return `<p class="small muted" style="margin-top:0">${rot ? 'Builds the rotation: everyone keeps their shift (days stay days, nights stay nights) and works 3 twelves plus one 4-hour shift a week. The tool picks which week of the 7-week rotation each person starts on so every hour is at minimum, extra hours stay within the relief margin, and 4-hour days are spread across the week.' : 'Builds fixed 7-day, 40-hour lines (no built-in overtime).'} Part-timers' lines stay as they are. Nothing changes until you approve.</p>
+    return `<p class="small muted" style="margin-top:0">${rot ? 'Builds the rotation: everyone keeps their shift (days stay days, nights stay nights) and works 3 twelves plus one 4-hour shift a week. The tool picks which week of the 7-week rotation each person starts on so every hour is at minimum, extra hours stay within the relief margin, and 4-hour days are spread across the week.' : 'Builds fixed 7-day, 40-hour schedule slots (no built-in overtime).'} Part-timers' schedule slots stay as they are. Nothing changes until you approve.</p>
       <div class="form-grid">
         <div class="field"><label>Job class</label>${u.bidId ? `<div>${esc(jc.name)}</div>` : `<select data-change="sug-param" name="sugClass" data-keep="1">${App.opts(P.jobClasses(st).filter((c) => P.classMembers(st, c).length), u.jobClassId)}</select>`}</div>
-        <div class="field"><label>Full-time lines</label><input type="number" min="0" name="sugN" value="${esc(u.headcount)}" placeholder="${ftCount}"></div>
+        <div class="field"><label>Full-time schedule slots</label><input type="number" min="0" name="sugN" value="${esc(u.headcount)}" placeholder="${ftCount}"></div>
         <div class="field"><label>Staffing level</label><div>${App.levelBadge(lvl)}</div></div>
       </div>
       <details class="section"><summary class="small">Advanced</summary>
         <div class="form-grid">
           <div class="field"><label>Relief margin (per console-hour)</label><input type="number" min="0" name="sugMargin" value="${esc(u.margin)}" placeholder="${lvl.level === 'normal' ? rule.reliefMargin : 0} (${lvl.level})"></div>
-          <div class="field"><label>Line type</label><select name="sugMode">${App.opts([{ id: 'rotation', name: 'Rotation (3 × 12 + one 4-hour)' }, { id: 'weekly', name: 'Fixed 7-day patterns' }], u.mode)}</select></div>
+          <div class="field"><label>Schedule slot type</label><select name="sugMode">${App.opts([{ id: 'rotation', name: 'Rotation (3 × 12 + one 4-hour)' }, { id: 'weekly', name: 'Fixed 7-day patterns' }], u.mode)}</select></div>
           <div class="field"><label class="check"><input type="checkbox" name="sugKeep" ${u.keep ? 'checked' : ''}> People keep their shift</label></div>
         </div>
         <div class="field"><label>Shifts the suggestion may use</label><div class="pill-list">${st.shiftTemplates.map((t) => `<label class="check"><input type="checkbox" data-multi="1" name="sugTpl" value="${t.id}" ${u.templateIds.includes(t.id) ? 'checked' : ''}> ${esc(t.code)} ${t.start.replace(':', '')} ${t.hours}h</label>`).join('')}</div></div>
@@ -133,7 +133,7 @@
       const b = s.bids.find((x) => x.id === u.bidId);
       b.lines = bidLinesFrom(s, u.result, b.effectiveDate);
       b.picks = {}; b.skipped = [];
-    }, `Bid now has ${u.result.lines.length} suggested lines`);
+    }, `Bid now has ${u.result.lines.length} suggested schedule slots`);
     App.closeModal();
   };
   App.actions['sug-new-bid'] = () => {
@@ -142,7 +142,7 @@
     const jc = u.result.jobClass;
     const bid = { id: P.uid('bid'), name: `${jc.name} bid ${eff}`, jobClassId: jc.id, positionId: null, effectiveDate: eff, status: 'draft', lines: bidLinesFrom(S(), u.result, eff), picks: {}, skipped: [], order: [], createdAt: new Date().toISOString() };
     App.ui.bid.bidId = bid.id; App.ui.bid.tab = 'bids';
-    App.commit((s) => s.bids.push(bid), 'Draft bid created with the suggested lines');
+    App.commit((s) => s.bids.push(bid), 'Draft bid created with the suggested schedule slots');
     App.closeModal();
   };
   App.actions['sug-to-lines'] = () => {
@@ -155,7 +155,7 @@
     const d0 = P.parseDate(eff);
     const near = (s) => P.openings(s, d0 - 1, d0 + 1).slots.filter((x) => P.classConsoles(s, u.result.jobClass).includes(x.positionId)).reduce((t, x) => t + x.hours, 0);
     const gapsBefore = near(st);
-    App.confirm(`Change ${u.result.changes.length} people's lines in ${esc(u.result.jobClass.name)} from ${esc(eff)}? Their current lines end ${P.fmtDate(P.parseDate(eff) - 1)} and they are notified. Everyone else keeps their line.${short ? ` <b>That's inside your ${st.center.dayOffNoticeDays}-day notice period.</b>` : ''}`, () => {
+    App.confirm(`Change ${u.result.changes.length} people's schedule slots in ${esc(u.result.jobClass.name)} from ${esc(eff)}? Their current schedule slots end ${P.fmtDate(P.parseDate(eff) - 1)} and they are notified. Everyone else keeps their schedule slot.${short ? ` <b>That's inside your ${st.center.dayOffNoticeDays}-day notice period.</b>` : ''}`, () => {
       let msg = '';
       App.commit((s) => {
         const res = B.applyToCurrentLines(s, u.result, eff);
@@ -164,7 +164,7 @@
         const added = near(s) - gapsBefore;
         if (added > 0.01) msg = `The changeover adds ${hrs(added)} uncovered hours (often the first overnight). Check Openings for ${P.fmtDate(d0 - 1)} to ${P.fmtDate(d0 + 1)}.`;
         msg = msg || '';
-        App.toast(`${res.changed.length} ${res.changed.length === 1 ? "person's line changes" : "people's lines change"} from ${eff} (notified); ${res.kept} unchanged${res.vacant ? `; ${res.vacant} vacant` : ''}`);
+        App.toast(`${res.changed.length} ${res.changed.length === 1 ? "person's schedule slot changes" : "people's schedule slots change"} from ${eff} (notified); ${res.kept} unchanged${res.vacant ? `; ${res.vacant} vacant` : ''}`);
       });
       if (msg) App.toast(msg, true);
     }, 'Apply');

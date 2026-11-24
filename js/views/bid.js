@@ -11,14 +11,14 @@
     render(st, ui) {
       if (!App.isSup()) return employeeBid(st);
       const u = ui.bid;
-      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current lines</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button><button class="${u.tab === 'import' ? 'on' : ''}" data-action="bid-tab" data-tab="import">Import schedule${(st.scheduleImports || []).length ? ` (${st.scheduleImports.length})` : ''}</button></div>`;
-      return `<div class="page-head"><div><h1>Lines & Shift Bid</h1><p>A line = job class + shift + rotation pattern + start date. Mix 8, 10 and 12-hour lines freely; switch schedules by bidding a new set of lines with an effective date.</p></div></div>
+      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current schedule slots</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button><button class="${u.tab === 'import' ? 'on' : ''}" data-action="bid-tab" data-tab="import">Import schedule${(st.scheduleImports || []).length ? ` (${st.scheduleImports.length})` : ''}</button></div>`;
+      return `<div class="page-head"><div><h1>Schedules & Bids</h1><p>A schedule slot is one person's repeating schedule: their shift, rotation and start date. Vacant slots are unfilled positions; in a shift bid, people pick slots in seniority order.</p></div></div>
         ${tabs}${u.tab === 'lines' ? linesTab(st, u) : u.tab === 'import' ? App.importTab(st) : bidsTab(st, u)}`;
     },
   };
 
-  // ------------------------------------------------------------ lines tab
-  // Lines belong to a job class. A preferred console is optional and only breaks ties
+  // ------------------------------------------------------------ schedule slots tab
+  // Schedule slots belong to a job class. A preferred console is optional and only breaks ties
   // when people are placed on consoles each hour.
   const classOpts = (st, sel) => App.opts(P.jobClasses(st), sel);
   const consoleOpts = (st, sel) => `<option value="">Any (by certification)</option>${App.opts(st.positions, sel || '')}`;
@@ -40,18 +40,18 @@
       if (!ls.length) return '';
       const byShift = {};
       for (const l of ls) { const t = App.tpl(l.shiftTemplateId); const k = t ? t.code : '?'; byShift[k] = (byShift[k] || 0) + 1; }
-      return `<span class="badge info">${esc(c.name)}: ${ls.length} lines (${Object.entries(byShift).map(([k, v]) => `${v}×${k}`).join(', ')})</span>`;
+      return `<span class="badge info">${esc(c.name)}: ${ls.length} schedule slots (${Object.entries(byShift).map(([k, v]) => `${v}×${k}`).join(', ')})</span>`;
     }).join(' ');
     return `<div class="panel">
       <div class="page-head" style="margin-bottom:8px"><div class="pill-list">${summary}</div>
-        <div class="toolbar"><label class="check"><input type="checkbox" ${u.showPast ? 'checked' : ''} data-change="lines-past"> Show ended lines</label>
-        <button class="btn" data-action="line-add">+ Line</button><button class="btn" data-action="line-gen" data-target="current">Generate lines…</button><button class="btn primary" data-action="sug-open" title="Keeps everyone on their shift and picks which week of the rotation each person starts on">Rebalance lines…</button></div></div>
-      ${unassignedEmps.length ? `<div class="callout warn">No line assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
-      ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant line(s) — these produce structural openings until filled.</div>` : ''}
-      <div class="table-wrap"><table><thead><tr><th>Line</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
-      ${lines.map((l) => lineRow(st, l, 'line')).join('') || '<tr><td colspan="11" class="empty">No lines yet.</td></tr>'}
+        <div class="toolbar"><label class="check"><input type="checkbox" ${u.showPast ? 'checked' : ''} data-change="lines-past"> Show ended schedule slots</label>
+        <button class="btn" data-action="line-add">+ Schedule slot</button><button class="btn" data-action="line-gen" data-target="current">Generate schedule slots…</button><button class="btn primary" data-action="sug-open" title="Keeps everyone on their shift and picks which week of the rotation each person starts on">Rebalance schedule slots…</button></div></div>
+      ${unassignedEmps.length ? `<div class="callout warn">No schedule slot assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
+      ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant schedule slot(s) — these produce structural openings until filled.</div>` : ''}
+      <div class="table-wrap"><table><thead><tr><th>Schedule slot</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
+      ${lines.map((l) => lineRow(st, l, 'line')).join('') || '<tr><td colspan="11" class="empty">No schedule slots yet.</td></tr>'}
       </tbody></table></div>
-      <p class="small muted">A line is a job-class schedule: shift, rotation pattern and start date. Each hour, people on duty are placed on consoles by their certifications and the consoles' fill priority; a line's preferred console only breaks ties. Rotation anchor = the date the line is on day 1 of its pattern; lines with the same anchor rotate together (a "team"). Edits save immediately.</p></div>`;
+      <p class="small muted">A schedule slot is a job-class schedule: shift, rotation pattern and start date. Each hour, people on duty are placed on consoles by their certifications and the consoles' fill priority; a schedule slot's preferred console only breaks ties. Rotation anchor = the date the schedule slot is on day 1 of its pattern; schedule slots with the same anchor rotate together (a "team"). Edits save immediately.</p></div>`;
   }
 
   function lineRow(st, l, kind) {
@@ -70,16 +70,16 @@
       <td>${kind === 'line' ? `<select data-change="${ch}" data-id="${l.id}" data-f="jobClassId">${classOpts(st, jc ? jc.id : '')}</select>` : esc(jc ? jc.name : '')}</td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="positionId">${consoleOpts(st, l.positionId)}</select></td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="shiftTemplateId">${App.opts(st.shiftTemplates, l.shiftTemplateId, (t) => `${t.code} ${t.start.replace(':', '')} ${t.hours}h`)}</select>
-        ${pat && pat.cycle.some(P.isShortTok) ? `<div><select class="small" data-change="${ch}" data-id="${l.id}" data-f="shortTemplateId" title="This line's 4-hour shift (blank = the job class setting)"><option value="">4-hour: ${esc((() => { const t = P.shortTemplateOf(Object.assign({}, l, { shortTemplateId: null }), P.index(st)); return t ? `${t.code} ${t.start.replace(':', '')}` : '—'; })())} (default)</option>${App.opts(st.shiftTemplates.filter((t) => +t.hours === 4), l.shortTemplateId || '', (t) => `4-hour: ${t.code} ${t.start.replace(':', '')}`)}</select></div>` : ''}</td>
+        ${pat && pat.cycle.some(P.isShortTok) ? `<div><select class="small" data-change="${ch}" data-id="${l.id}" data-f="shortTemplateId" title="This schedule slot's 4-hour shift (blank = the job class setting)"><option value="">4-hour: ${esc((() => { const t = P.shortTemplateOf(Object.assign({}, l, { shortTemplateId: null }), P.index(st)); return t ? `${t.code} ${t.start.replace(':', '')}` : '—'; })())} (default)</option>${App.opts(st.shiftTemplates.filter((t) => +t.hours === 4), l.shortTemplateId || '', (t) => `4-hour: ${t.code} ${t.start.replace(':', '')}`)}</select></div>` : ''}</td>
       <td><select data-change="${ch}" data-id="${l.id}" data-f="patternId">${App.opts(st.patterns, l.patternId)}</select></td>
       <td><input type="date" value="${esc(l.anchorDate || l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="anchorDate"></td>
       ${kind === 'line' ? `<td><input type="date" value="${esc(l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="effectiveFrom"></td>
       <td><input type="date" value="${esc(l.effectiveTo || '')}" data-change="${ch}" data-id="${l.id}" data-f="effectiveTo"></td><td>${empSel}</td>` : ''}
       <td class="num">${hrs(wk)}${otBadge(st, l)}</td>
-      <td><button class="btn sm danger" data-action="${kind === 'line' ? 'line-del' : 'bidline-del'}" data-id="${l.id}" title="Delete line">✕</button></td></tr>`;
+      <td><button class="btn sm danger" data-action="${kind === 'line' ? 'line-del' : 'bidline-del'}" data-id="${l.id}" title="Delete schedule slot">✕</button></td></tr>`;
   }
 
-  /** Flag lines whose pattern goes over the OT threshold under the center's rule. */
+  /** Flag schedule slots whose pattern goes over the OT threshold under the center's rule. */
   const otCache = {};
   function otBadge(st, l) {
     const c = st.center;
@@ -96,7 +96,7 @@
       otCache[k] = P.otReport(temp, t0, t0 + 363).totals.hours;
     }
     const h = otCache[k];
-    return h > 0.01 ? ` <span class="badge bad" title="This line is scheduled over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day periods">+${hrs(h)} OT h/yr</span>` : '';
+    return h > 0.01 ? ` <span class="badge bad" title="This schedule slot is scheduled over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day periods">+${hrs(h)} OT h/yr</span>` : '';
   }
 
   App.actions['sug-open'] = (el) => App.openSuggest({ bidId: el.dataset.bid || null });
@@ -111,20 +111,20 @@
       // Changing a line's job class releases a holder who isn't in the new class.
       if (el.dataset.f === 'jobClassId' && l.employeeId) {
         const e = s2.employees.find((x) => x.id === l.employeeId);
-        if (e && (P.empClass(s2, e) || {}).id !== l.jobClassId) { l.employeeId = null; msg = `${P.empName(e)} isn't in that job class — line is now vacant`; }
+        if (e && (P.empClass(s2, e) || {}).id !== l.jobClassId) { l.employeeId = null; msg = `${P.empName(e)} isn't in that job class — schedule slot is now vacant`; }
       }
     }, '');
     if (msg) App.toast(msg);
   };
-  App.actions['line-del'] = (el) => App.confirm('Delete this line? Past schedule history for it will disappear. To end a line but keep history, set an end date instead.', () => App.commit((s) => { s.lines = s.lines.filter((l) => l.id !== el.dataset.id); }, 'Line deleted'), 'Delete');
+  App.actions['line-del'] = (el) => App.confirm('Delete this schedule slot? Past schedule history for it will disappear. To end a schedule slot but keep history, set an end date instead.', () => App.commit((s) => { s.lines = s.lines.filter((l) => l.id !== el.dataset.id); }, 'Schedule slot deleted'), 'Delete');
   App.actions['line-add'] = () => {
     const st = S();
     const t = P.fmtDate(P.todayNum());
     const jc = P.jobClasses(st).find((c) => P.classMembers(st, c).length) || P.jobClasses(st)[0];
-    App.commit((s) => s.lines.push({ id: P.uid('ln'), name: 'New line', jobClassId: jc ? jc.id : null, positionId: null, shiftTemplateId: st.shiftTemplates[0].id, patternId: st.patterns[0].id, anchorDate: t, effectiveFrom: t, effectiveTo: null, employeeId: null }), 'Line added');
+    App.commit((s) => s.lines.push({ id: P.uid('ln'), name: 'New slot', jobClassId: jc ? jc.id : null, positionId: null, shiftTemplateId: st.shiftTemplates[0].id, patternId: st.patterns[0].id, anchorDate: t, effectiveFrom: t, effectiveTo: null, employeeId: null }), 'Schedule slot added');
   };
 
-  // Generator — used for current lines and for bid packages.
+  // Generator — used for current schedule slots and for bid packages.
   App.actions['line-gen'] = (el) => {
     const st = S();
     const target = el.dataset.target;
@@ -133,18 +133,18 @@
     const rot = window.PSAPBalance.rotationPattern(st);
     const d12 = st.shiftTemplates.find((t) => +t.hours === 12);
     App.modal({
-      title: 'Generate lines',
+      title: 'Generate schedule slots',
       body: `<div class="form-grid">
         ${bid ? `<input type="hidden" name="jobClassId" value="${esc((P.bidClass(st, bid) || {}).id || '')}">` : `<div class="field"><label>Job class</label><select name="jobClassId">${classOpts(st, '')}</select></div>`}
         <div class="field"><label>Preferred console (optional)</label><select name="positionId">${consoleOpts(st, '')}</select></div>
         <div class="field"><label>Shift</label><select name="shiftTemplateId">${App.opts(st.shiftTemplates, rot && d12 ? d12.id : '', (t) => `${t.code} — ${t.name} ${t.start.replace(':', '')} ${t.hours}h`)}</select></div>
         <div class="field"><label>Pattern</label><select name="patternId">${App.opts(st.patterns, rot ? rot.id : '')}</select></div>
-        <div class="field"><label>Number of lines</label><input type="number" name="count" min="1" value="${rot ? 7 : 10}"></div>
+        <div class="field"><label>Number of schedule slots</label><input type="number" name="count" min="1" value="${rot ? 7 : 10}"></div>
         <div class="field"><label>Teams (start offsets)</label><input type="number" name="teams" min="1" value="${rot ? 7 : 2}"></div>
         <div class="field"><label>Rotation anchor</label><input type="date" name="anchorDate" value="${anchor}"></div>
         <div class="field"><label>Name prefix</label><input name="prefix" placeholder="e.g. D12"></div>
       </div>
-      <p class="small muted">Teams spread start dates evenly across the pattern. The rotation (3 × 12 + one 4-hour) starts on a work week, and 7 teams start one week apart, so each day has the same number on and the 4-hour days fall on different days. Then use <b>Rebalance lines</b> to fine-tune. For fixed patterns: 5 x 8 → 7 teams; 4 x 10 → 7 teams.</p>`,
+      <p class="small muted">Teams spread start dates evenly across the pattern. The rotation (3 × 12 + one 4-hour) starts on a work week, and 7 teams start one week apart, so each day has the same number on and the 4-hour days fall on different days. Then use <b>Rebalance schedule slots</b> to fine-tune. For fixed patterns: 5 x 8 → 7 teams; 4 x 10 → 7 teams.</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="line-gen-go" data-target="' + target + '">Create</button>',
     });
   };
@@ -156,7 +156,7 @@
     App.commit((s) => {
       if (isBid) { const b = s.bids.find((x) => x.id === App.ui.bid.bidId); b.lines.push(...lines.map((l) => Object.assign(l, { effectiveFrom: b.effectiveDate }))); }
       else s.lines.push(...lines);
-    }, `${lines.length} lines created`);
+    }, `${lines.length} schedule slots created`);
     App.closeModal();
   };
 
@@ -164,11 +164,11 @@
   function bidsTab(st, u) {
     const bid = st.bids.find((b) => b.id === u.bidId);
     const list = `<div class="panel"><h2>Bid packages <button class="btn sm primary" data-action="bid-new">+ New bid</button></h2>
-      ${st.bids.length ? `<table><thead><tr><th>Name</th><th>Job class</th><th>Effective</th><th>Lines</th><th>Picked</th><th>Status</th><th></th></tr></thead><tbody>
+      ${st.bids.length ? `<table><thead><tr><th>Name</th><th>Job class</th><th>Effective</th><th>Schedule slots</th><th>Picked</th><th>Status</th><th></th></tr></thead><tbody>
       ${st.bids.map((b) => `<tr class="${b.id === u.bidId ? 'bidder-now' : ''}"><td>${esc(b.name)}</td><td>${esc((P.bidClass(st, b) || {}).name || '?')}</td><td>${esc(b.effectiveDate)}</td><td>${b.lines.length}</td>
         <td>${Object.keys(b.picks || {}).length}/${P.bidOrder(st, b).length}</td><td><span class="badge ${b.status === 'applied' ? 'ok' : b.status === 'open' ? 'warn' : ''}">${b.status}</span></td>
         <td class="nowrap"><button class="btn sm" data-action="bid-open" data-id="${b.id}">Open</button> <button class="btn sm danger" data-action="bid-del" data-id="${b.id}">✕</button></td></tr>`).join('')}
-      </tbody></table>` : '<div class="empty">No bids yet. Create one to re-bid the current lines or to move to a new schedule (e.g. 8s → 12s) on an effective date.</div>'}</div>`;
+      </tbody></table>` : '<div class="empty">No bids yet. Create one to re-bid the current schedule slots or to move to a new schedule (e.g. 8s → 12s) on an effective date.</div>'}</div>`;
     return list + (bid ? bidDetail(st, bid) : '');
   }
 
@@ -218,21 +218,21 @@
       <h2>${esc(bid.name)} — ${esc(jc ? jc.name : '?')}${pids.length > 1 ? ` <span class="small muted">(${pids.map((x) => esc(App.posName(x))).join(' + ')})</span>` : ''}, effective ${P.shortDate(eff)}
         <span class="toolbar">${bid.status === 'draft' ? '<button class="btn sm primary" data-action="bid-status" data-s="open">Open bidding</button>' : ''}
         ${bid.status === 'open' ? `<button class="btn sm" data-action="bid-skip" ${cur ? '' : 'disabled'}>Skip current</button><button class="btn sm" data-action="bid-auto">Auto-assign remaining</button><button class="btn sm" data-action="bid-status" data-s="draft">Back to draft</button>` : ''}
-        ${editable ? '<button class="btn sm primary" data-action="sug-open" data-bid="' + bid.id + '">Suggest lines…</button><button class="btn sm" data-action="line-gen" data-target="bid">+ Generate lines</button><button class="btn sm" data-action="bid-copy-current">+ Copy current lines</button>' : ''}
+        ${editable ? '<button class="btn sm primary" data-action="sug-open" data-bid="' + bid.id + '">Suggest schedule slots…</button><button class="btn sm" data-action="line-gen" data-target="bid">+ Generate schedule slots</button><button class="btn sm" data-action="bid-copy-current">+ Copy current schedule slots</button>' : ''}
         ${bid.status !== 'applied' ? '<button class="btn sm primary" data-action="bid-apply">Apply to schedule</button>' : '<span class="badge ok">Applied</span>'}
         <button class="btn sm" data-action="print" title="Print or save as PDF">Print</button></span></h2>
       <div class="kpis">
-        ${App.kpi('Lines / bidders', `${bid.lines.length} / ${order.length}`, bid.lines.length < order.length ? 'Not enough lines for everyone' : bid.lines.length > order.length ? `${bid.lines.length - order.length} line(s) will be vacant` : 'One line per bidder', bid.lines.length < order.length ? 'bad' : bid.lines.length > order.length ? 'warn' : 'ok')}
-        ${App.kpi('Line hours vs minimum', `${hrs(lineHrs)} / ${hrs(reqHrs)}`, 'avg weekly hours if every line is filled, before leave', lineHrs < reqHrs ? 'bad' : lineHrs < reqHrs * 1.12 ? 'warn' : 'ok')}
-        ${App.kpi(`Short person-hours (${days} days)`, shortH, 'with every line filled and nobody on leave', shortH ? 'bad' : 'ok')}
+        ${App.kpi('Schedule slots / bidders', `${bid.lines.length} / ${order.length}`, bid.lines.length < order.length ? 'Not enough schedule slots for everyone' : bid.lines.length > order.length ? `${bid.lines.length - order.length} schedule slot(s) will be vacant` : 'One schedule slot per bidder', bid.lines.length < order.length ? 'bad' : bid.lines.length > order.length ? 'warn' : 'ok')}
+        ${App.kpi('Schedule slot hours vs minimum', `${hrs(lineHrs)} / ${hrs(reqHrs)}`, 'avg weekly hours if every schedule slot is filled, before leave', lineHrs < reqHrs ? 'bad' : lineHrs < reqHrs * 1.12 ? 'warn' : 'ok')}
+        ${App.kpi(`Short person-hours (${days} days)`, shortH, 'with every schedule slot filled and nobody on leave', shortH ? 'bad' : 'ok')}
         ${App.kpi('Next up', cur ? esc(P.empName(cur)) : '—', bid.status === 'open' ? 'senior-most remaining bidder' : `bid is ${bid.status}`)}
       </div>
-      <h3>Coverage these lines produce — lowest staffing at each hour across the ${days}-day cycle</h3>
+      <h3>Coverage these schedule slots produce — lowest staffing at each hour across the ${days}-day cycle</h3>
       <div class="strip" style="margin-bottom:2px">${minS.map((v, h) => `<div class="${App.covClass(v === Infinity ? 0 : v, req[h])}" title="${P.pad(h)}00 — lowest ${App.fmtStaff(v)} vs min ${req[h]}; short on ${short[h]} of ${days} days">${App.fmtStaff(v === Infinity ? 0 : v)}/${req[h]}</div>`).join('')}</div>
       <div class="strip-labels" style="margin-bottom:14px">${minS.map((_, h) => `<span>${P.pad(h)}</span>`).join('')}</div>
       <div class="grid g2">
-        <div><h3>Bid order (seniority)</h3><div class="table-wrap" style="max-height:520px"><table><thead><tr><th>#</th><th>Employee</th><th>Seniority</th><th>Line</th><th></th></tr></thead><tbody>${orderRows}</tbody></table></div></div>
-        <div><h3>Lines</h3><div class="table-wrap" style="max-height:520px"><table><thead><tr><th>Line</th><th>Shift</th><th>Pattern</th><th>Anchor</th><th>First 14 days</th><th>Bidder</th><th></th></tr></thead><tbody>${lineRows || '<tr><td colspan="7" class="empty">No lines in this bid yet — generate or copy them.</td></tr>'}</tbody></table></div></div>
+        <div><h3>Bid order (seniority)</h3><div class="table-wrap" style="max-height:520px"><table><thead><tr><th>#</th><th>Employee</th><th>Seniority</th><th>Schedule slot</th><th></th></tr></thead><tbody>${orderRows}</tbody></table></div></div>
+        <div><h3>Schedule slots</h3><div class="table-wrap" style="max-height:520px"><table><thead><tr><th>Schedule slot</th><th>Shift</th><th>Pattern</th><th>Anchor</th><th>First 14 days</th><th>Bidder</th><th></th></tr></thead><tbody>${lineRows || '<tr><td colspan="7" class="empty">No schedule slots in this bid yet — generate or copy them.</td></tr>'}</tbody></table></div></div>
       </div></div>`;
   }
 
@@ -257,7 +257,7 @@
       body: `<div class="form-grid"><div class="field"><label>Name</label><input name="name" value="${esc(`${new Date(eff * 86400000).getUTCFullYear()} shift bid`)}"></div>
         <div class="field"><label>Job class (everyone in it bids)</label><select name="jobClassId">${App.opts(P.jobClasses(st).filter((c) => P.classMembers(st, c).length), '')}</select></div>
         <div class="field"><label>Effective date</label><input type="date" name="effectiveDate" value="${P.fmtDate(eff)}"></div>
-        <div class="field"><label>Start with</label><select name="seed"><option value="copy">Copy current lines</option><option value="empty">Empty (generate new lines)</option></select></div></div>
+        <div class="field"><label>Start with</label><select name="seed"><option value="copy">Copy current schedule slots</option><option value="empty">Empty (generate new schedule slots)</option></select></div></div>
         <p class="small muted">Bid order defaults to seniority date (earliest first); you can reorder before or during the bid. Nothing changes on the schedule until you click "Apply".</p>`,
       footer: '<button class="btn" data-action="modal-close">Cancel</button><button class="btn primary" data-action="bid-create">Create</button>',
     });
@@ -277,7 +277,7 @@
     App.commit((s) => s.bids.push(bid), 'Bid created');
     App.closeModal();
   };
-  App.actions['bid-copy-current'] = () => App.commit((s) => { const b = s.bids.find((x) => x.id === App.ui.bid.bidId); b.lines.push(...copyCurrent(s, (P.bidClass(s, b) || {}).id, b.effectiveDate)); }, 'Lines copied');
+  App.actions['bid-copy-current'] = () => App.commit((s) => { const b = s.bids.find((x) => x.id === App.ui.bid.bidId); b.lines.push(...copyCurrent(s, (P.bidClass(s, b) || {}).id, b.effectiveDate)); }, 'Schedule slots copied');
   App.actions['bid-open'] = (el) => { App.ui.bid.bidId = el.dataset.id; App.render(); };
   App.actions['bid-del'] = (el) => App.confirm('Delete this bid package?', () => App.commit((s) => { s.bids = s.bids.filter((b) => b.id !== el.dataset.id); }, 'Bid deleted'), 'Delete');
   App.actions['bid-status'] = (el) => App.commit(() => { curBid().status = el.dataset.s; });
@@ -290,18 +290,18 @@
     const myClass = emp ? P.empClass(st, emp) : null;
     const bids = st.bids.filter((b) => b.status !== 'draft' && myClass && (P.bidClass(st, b) || {}).id === myClass.id);
     if (!bids.length) return '<div class="page-head"><div><h1>Shift bid</h1></div></div><div class="panel empty">No shift bid is open for your job class.</div>';
-    return '<div class="page-head"><div><h1>Shift bid</h1><p>Lines are picked in seniority order. You\'ll be notified when it is your turn.</p></div></div>' + bids.map((b) => {
+    return '<div class="page-head"><div><h1>Shift bid</h1><p>Schedule slots are picked in seniority order. You\'ll be notified when it is your turn.</p></div></div>' + bids.map((b) => {
       const order = P.bidOrder(st, b);
       const cur = b.status === 'open' ? P.currentBidder(st, b) : null;
       const byLine = {}; for (const [e, l] of Object.entries(b.picks || {})) byLine[l] = e;
       const myPick = b.picks && b.picks[me] ? b.lines.find((l) => l.id === b.picks[me]) : null;
       const eff = P.parseDate(b.effectiveDate);
       return `<div class="panel" style="margin-bottom:14px"><h2>${esc(b.name)} — effective ${P.shortDate(eff)} ${App.statusBadge(b.status)}</h2>
-        ${myPick ? `<div class="callout">Your line: <b>${esc(myPick.name)}</b></div>` : cur && cur.id === me ? '<div class="callout warn"><b>It\'s your turn.</b> Pick a line below.</div>' : cur ? `<div class="callout">Now picking: ${esc(P.empName(cur))}. You are #${order.findIndex((e) => e.id === me) + 1} of ${order.length}.</div>` : ''}
-        <div class="table-wrap"><table><thead><tr><th>Line</th><th>Shift</th><th>Pattern</th><th>First 14 days</th><th>Picked by</th></tr></thead><tbody>
+        ${myPick ? `<div class="callout">Your schedule slot: <b>${esc(myPick.name)}</b></div>` : cur && cur.id === me ? '<div class="callout warn"><b>It\'s your turn.</b> Pick a schedule slot below.</div>' : cur ? `<div class="callout">Now picking: ${esc(P.empName(cur))}. You are #${order.findIndex((e) => e.id === me) + 1} of ${order.length}.</div>` : ''}
+        <div class="table-wrap"><table><thead><tr><th>Schedule slot</th><th>Shift</th><th>Pattern</th><th>First 14 days</th><th>Picked by</th></tr></thead><tbody>
         ${b.lines.map((l) => { const t = App.tpl(l.shiftTemplateId); const pat = st.patterns.find((p) => p.id === l.patternId); const by = byLine[l.id];
           return `<tr class="${by ? 'dim' : ''}"><td>${esc(l.name)}</td><td>${t ? `${esc(t.code)} ${t.start.replace(':', '')} ${t.hours}h` : ''}</td><td class="small">${esc(pat ? pat.name : '')}</td><td>${pat ? daysOffText(pat, l, eff) : ''}</td>
-          <td>${by ? esc(P.empName(App.emp(by))) : cur && cur.id === me ? `<button class="btn sm primary" data-action="bid-pick" data-bid="${b.id}" data-line="${l.id}">Pick this line</button>` : '<span class="muted">open</span>'}</td></tr>`; }).join('')}
+          <td>${by ? esc(P.empName(App.emp(by))) : cur && cur.id === me ? `<button class="btn sm primary" data-action="bid-pick" data-bid="${b.id}" data-line="${l.id}">Pick this schedule slot</button>` : '<span class="muted">open</span>'}</td></tr>`; }).join('')}
         </tbody></table></div></div>`;
     }).join('');
   }
@@ -315,7 +315,7 @@
     [ids[i], ids[j]] = [ids[j], ids[i]];
     b.order = ids;
   });
-  App.actions['bid-auto'] = () => App.confirm('Assign every remaining (and skipped) bidder the first open line, in bid order?', () => App.commit((s) => {
+  App.actions['bid-auto'] = () => App.confirm('Assign every remaining (and skipped) bidder the first open schedule slot, in bid order?', () => App.commit((s) => {
     const b = curBid();
     b.skipped = [];
     const taken = new Set(Object.values(b.picks));
@@ -330,7 +330,7 @@
     const b = curBid();
     const st = S();
     const unpicked = P.bidOrder(st, b).filter((e) => !b.picks[e.id]).length;
-    App.confirm(`Apply "${esc(b.name)}" effective ${esc(b.effectiveDate)}? Current ${esc((P.bidClass(st, b) || {}).name || '')} lines will end on ${P.fmtDate(P.parseDate(b.effectiveDate) - 1)} and the ${b.lines.length} bid lines start.${unpicked ? ` <b>${unpicked} employee(s) have no line</b> and will not be scheduled.` : ''} Leave already entered after that date stays in place; check it against the new schedule.`,
+    App.confirm(`Apply "${esc(b.name)}" effective ${esc(b.effectiveDate)}? Current ${esc((P.bidClass(st, b) || {}).name || '')} schedule slots will end on ${P.fmtDate(P.parseDate(b.effectiveDate) - 1)} and the ${b.lines.length} bid schedule slots start.${unpicked ? ` <b>${unpicked} employee(s) have no schedule slot</b> and will not be scheduled.` : ''} Leave already entered after that date stays in place; check it against the new schedule.`,
       () => App.commit((s) => P.applyBid(s, s.bids.find((x) => x.id === b.id)), 'Bid applied to schedule'), 'Apply');
   };
   App.changes['bidline-field'] = (el) => App.commit(() => { const l = curBid().lines.find((x) => x.id === el.dataset.id); if (l) l[el.dataset.f] = el.value; });

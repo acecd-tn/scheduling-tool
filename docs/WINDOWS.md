@@ -234,7 +234,7 @@ HTTPS-only cookies, but no multi-factor sign-in yet; that would come with Micros
       counts, consoles (e.g. Law, Fire/EMS), and employees with their job class and
       the consoles they're certified on.
    3. **Settings:** minimum staffing grid.
-   4. **Lines & Bid:** lines.
+   4. **Schedules & Bids:** schedule slots.
    5. **Staff → Create login** for each person. Each one gets a temporary password
       they must change at first sign-in.
    6. Give supervisors the *supervisor* role (only an admin can).

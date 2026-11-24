@@ -33,7 +33,7 @@
         return `<div class="panel"><h2>${esc(p.name)} <span class="badge ${shortHrs ? 'bad' : 'ok'}">${shortHrs} short person-hours</span></h2>
           <div class="table-wrap"><table class="heat"><thead><tr><th></th>${days.map((d) => `<th>${P.shortDate(d)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div></div>`;
       }).join('');
-      return `<div class="page-head"><div><h1>Coverage</h1><p>Staffed / minimum each hour, after leave and with OT. Each column is a scheduling day starting ${P.pad(startH)}00; lines mark shift changes. Click a red cell to fill it.</p></div>
+      return `<div class="page-head"><div><h1>Coverage</h1><p>Staffed / minimum each hour, after leave and with OT. Each column is a scheduling day starting ${P.pad(startH)}00; dividers mark shift changes. Click a red cell to fill it.</p></div>
         <div class="toolbar"><button class="btn" data-action="cov-move" data-dir="-7">◀</button><button class="btn" data-action="cov-today">This week</button><button class="btn" data-action="cov-move" data-dir="7">▶</button>
         <input type="date" value="${P.fmtDate(from)}" data-change="cov-date"></div></div>
         <div class="legend" style="margin-bottom:10px"><span class="badge bad">below minimum</span><span class="badge warn">at minimum</span><span class="badge ok">above minimum</span><span>Outlined = current hour</span></div>

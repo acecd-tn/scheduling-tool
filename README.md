@@ -69,12 +69,16 @@ and after. That matters for grievances and payroll disputes.
 
 ## Features
 
+- **Schedule slots.** A schedule slot is one person's repeating schedule: their shift,
+  rotation and start date. Vacant slots are unfilled positions; in a shift bid, people
+  pick slots in seniority order. (In the code and data these are still called `lines`.)
 - **Job classes and consoles.** A person's position is their *job class* (e.g.
   Telecommunicator, Supervisor). Job classes hold authorized full-time and part-time
-  positions, vacancies, the daily leave limit, lines and bids. *Consoles* (e.g. Law,
+  positions, vacancies, the daily leave limit, schedule slots and bids. *Consoles* (e.g. Law,
   Fire/EMS) are only where people sit each hour. Each person has a job class, the
   consoles they're certified on, and optionally a preferred console that only breaks
-  ties. Lines belong to a job class, so nobody is tied to a console by their line.
+  ties. Schedule slots belong to a job class, so nobody is tied to a console by their
+  schedule slot.
 - **Console coverage.** Minimum staffing per hour and day for each console, with
   special-day overrides. Each hour, the people on duty are placed on consoles by
   certification, filling consoles in *fill priority* order. Openings are per console;
@@ -112,22 +116,22 @@ and after. That matters for grievances and payroll disputes.
   combination (weekends included) over 7 weeks. The default base week never puts anyone
   on more than 3 days in a row. The 4-hour shift starts with the regular shift (day
   0700-1100, night 1900-2300) or falls during peak call volume; pick per job class in
-  Settings (the peak hours are suggested from your minimums) or per line. Other 40-hour
-  patterns (5×8, 4×10, 2×12 + 2×8) are under Settings → Advanced; any custom line that
+  Settings (the peak hours are suggested from your minimums) or per schedule slot. Other 40-hour
+  patterns (5×8, 4×10, 2×12 + 2×8) are under Settings → Advanced; any custom schedule slot that
   would build in OT is flagged.
 - **Days in a row.** Nobody is scheduled more than 4 days in a row (the 4-hour shift
   counts as a day). A 5th only when a supervisor marks a day-off move as an emergency;
   it is flagged on the schedule. Extra shifts that would break the limit are flagged
   in the fill list.
-- **Shift bid.** Per job class: generate the class's lines, bid in seniority order (employees pick on their own
+- **Shift bid.** Per job class: generate the class's schedule slots, bid in seniority order (employees pick on their own
   turn and are notified when it arrives), preview coverage across all consoles the
   class staffs, then apply on an effective date.
-- **Import an existing schedule.** Lines & Bid → Import schedule. Paste the grid from
+- **Import an existing schedule.** Schedules & Bids → Import schedule. Paste the grid from
   your spreadsheet (names down the side, dates across the top, a code per cell) or
   upload a CSV. Names are matched to employees; codes are guessed (OFF, times like
   0700-1900, VAC/SL/TRN and other leave codes) and you confirm the rest. For the
-  imported people and dates, the imported days replace their lines; leave codes
-  become approved leave on their usual shift. Lines take over after the last
+  imported people and dates, the imported days replace their schedule slots; leave codes
+  become approved leave on their usual shift. Schedule slots take over after the last
   imported date. Single days can be changed from the Schedule page; a whole import
   can be undone.
 - **Scheduling day.** Consoles, Coverage and the Dashboard run from the scheduling
@@ -149,15 +153,15 @@ and after. That matters for grievances and payroll disputes.
      coverage allows, it also offers 4-hour shifts for training (a part-timer may cover
      the seat), never at the cost of overtime.
   3. *What it costs if nobody can*, with advice at Critical staffing and a pointer to
-     rebalance the lines when the same gap repeats every week.
+     rebalance the schedule slots when the same gap repeats every week.
   Each suggestion is Approve or Skip; approving notifies the employee. Changes inside
   the notice period, or a 5th day in a row (emergency), are opt-in.
-- **Rebalance lines** (Lines & Bid, Fix coverage, or inside a shift bid). Keeps everyone
+- **Rebalance schedule slots** (Schedules & Bids, Fix coverage, or inside a shift bid). Keeps everyone
   on their shift and picks which week of the rotation each person starts on, so every
   hour of the job class's consoles is at minimum, extra hours stay within the relief
   margin and 4-hour days are spread across the week. Shows who changes (days off before
-  → after); approving changes only those lines and notifies those people. Or start a
-  shift bid with the suggested lines.
+  → after); approving changes only those schedule slots and notifies those people. Or start a
+  shift bid with the suggested schedule slots.
 - **Vacation bid.** Rounds in seniority order, up to 5 scheduled workdays per pick
   (or calendar days), and a daily limit per job class (default 1). Each pick is
   approved immediately; a calendar shows full days. The same per-job-class limit
@@ -191,7 +195,7 @@ index.html, css/        web app
 js/core.js              scheduling / coverage / OT / bid engine (no DOM; unit tested)
 js/actions.js           workflow rules (requests, trades, postings, bids); run by the server
 js/importer.js          reads and imports an existing schedule grid
-js/balancer.js          rotation line suggestions, day-off moves, Fix coverage plan
+js/balancer.js          rotation schedule-slot suggestions, day-off moves, Fix coverage plan
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page
 server/server.js        HTTP server, auth, SQLite storage, audit, live updates

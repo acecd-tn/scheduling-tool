@@ -322,14 +322,14 @@
     const cur = P.currentBidder(state, bid);
     if (!cur) fail('Everyone has picked');
     if (!isSup(actor) && cur.id !== actor.employeeId) fail('It is not your turn yet');
-    if (!bid.lines.some((l) => l.id === p.lineId)) fail('Unknown line');
-    if (Object.values(bid.picks || {}).includes(p.lineId)) fail('That line is taken');
+    if (!bid.lines.some((l) => l.id === p.lineId)) fail('Unknown schedule slot');
+    if (Object.values(bid.picks || {}).includes(p.lineId)) fail('That schedule slot is taken');
     (bid.picks ||= {})[cur.id] = p.lineId;
     (bid.log ||= []).push({ at: nowIso(ctx), employeeId: cur.id, lineId: p.lineId, by: actor.userId || null });
     const next = P.currentBidder(state, bid);
-    if (next) notify(state, next.id, 'Your turn to bid', `${bid.name}: it's your turn to pick a line.`, ctx, 'bid');
+    if (next) notify(state, next.id, 'Your turn to bid', `${bid.name}: it's your turn to pick a schedule slot.`, ctx, 'bid');
     else notify(state, 'supervisors', 'Shift bid complete', `${bid.name}: every bidder has picked.`, ctx, 'bid');
-    return { message: 'Line picked' };
+    return { message: 'Schedule slot picked' };
   }
 
   // ------------------------------------------------------- vacation bid
