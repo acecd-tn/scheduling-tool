@@ -681,31 +681,51 @@
    * people short (most at once) and when. Then group the same gap across weeks.
    */
   function groupGaps(state, slots) {
+    // Cut every opening at the shift changes, so each shortage belongs to exactly one
+    // shift (e.g. 0700-1900 or 1900-0700) of one scheduling day.
     const perBlock = {};
     for (const s of slots) {
       const sd = P.schedulingDayOf(state, s.start);
-      const blocks = P.shiftBlocks(state, sd);
-      const b = blocks.find((x) => s.start >= x.start && s.start < x.end) || blocks[blocks.length - 1];
-      const k = sd + '|' + b.start;
-      const g = perBlock[k] || (perBlock[k] = { day: sd, block: b, slots: [] });
-      g.slots.push(s);
+      for (let day = sd; day <= sd + 2; day++) {
+        const blocks = P.shiftBlocks(state, day);
+        if (blocks[0].start >= s.end) break;
+        for (const b of blocks) {
+          const a = Math.max(s.start, b.start), z = Math.min(s.end, b.end);
+          if (z <= a) continue;
+          const k = day + '|' + b.start;
+          const g = perBlock[k] || (perBlock[k] = { day, block: b, parts: [] });
+          g.parts.push({ start: a, end: z, positionId: s.positionId, hours: (z - a) / 60, cost: P.slotCost(state, s) * (z - a) / (s.end - s.start) });
+        }
+      }
     }
     const shifts = Object.values(perBlock).map((g) => {
-      let a = Infinity, z = -Infinity, peak = 0;
-      for (const s of g.slots) { a = Math.min(a, s.start); z = Math.max(z, s.end); }
-      for (let t = a; t < z; t += 60) peak = Math.max(peak, g.slots.filter((s) => s.start < t + 60 && s.end > t).length);
-      const full = a <= g.block.start + 60 && z >= g.block.end - 60;
-      return { day: g.day, dow: P.dow(g.day), name: blockName(g.block.start), block: g.block, start: a, end: z, full, short: peak, hours: g.slots.reduce((t, s) => t + s.hours, 0), consoles: [...new Set(g.slots.map((s) => s.positionId))], slots: g.slots, cost: g.slots.reduce((t, s) => t + P.slotCost(state, s), 0) };
+      const b = g.block;
+      // People short each hour of the shift, then runs of hours with the same count.
+      const n = [];
+      for (let t = b.start; t < b.end; t += 60) n.push(g.parts.filter((x) => x.start < t + 60 && x.end > t).length);
+      const segs = [];
+      n.forEach((c, i) => {
+        const last = segs[segs.length - 1];
+        if (c && last && last.n === c && last.to === i) last.to = i + 1;
+        else if (c) segs.push({ n: c, from: i, to: i + 1 });
+      });
+      const full = segs.length === 1 && segs[0].from === 0 && segs[0].to === n.length;
+      const at = (i) => P.mil(b.start + i * 60);
+      return {
+        day: g.day, dow: P.dow(g.day), name: blockName(b.start), block: b, blockText: `${P.mil(b.start)}-${P.mil(b.end)}`, full,
+        short: Math.max(0, ...n), segments: segs.map((x) => ({ short: x.n, from: at(x.from), to: at(x.to) })),
+        sig: full ? `all${segs[0].n}` : segs.map((x) => `${x.n}@${x.from}-${x.to}`).join(','),
+        hours: g.parts.reduce((t, x) => t + x.hours, 0), consoles: [...new Set(g.parts.map((x) => x.positionId))], cost: g.parts.reduce((t, x) => t + x.cost, 0),
+      };
     });
     const groups = {};
     for (const s of shifts) {
-      const when = s.full ? '' : `${P.mil(s.start)}-${P.mil(s.end)}`;
-      const k = [s.dow, s.name, s.short, when].join('|');
-      const g = groups[k] || (groups[k] = { key: k, dow: s.dow, name: s.name, short: s.short, when, days: [], hours: 0, cost: 0, consoles: new Set(), shifts: [] });
+      const k = [s.dow, s.name, s.blockText, s.sig].join('|');
+      const g = groups[k] || (groups[k] = { key: k, dow: s.dow, name: s.name, blockText: s.blockText, full: s.full, short: s.short, segments: s.segments, days: [], hours: 0, cost: 0, consoles: new Set(), shifts: [] });
       g.days.push(s.day); g.hours += s.hours; g.cost += s.cost; g.shifts.push(s);
       s.consoles.forEach((p) => g.consoles.add(p));
     }
-    return Object.values(groups).map((g) => Object.assign(g, { consoles: [...g.consoles] })).sort((a, b) => a.days[0] - b.days[0] || b.short - a.short);
+    return Object.values(groups).map((g) => Object.assign(g, { days: g.days.sort((x, y) => x - y), consoles: [...g.consoles] })).sort((a, b) => a.days[0] - b.days[0] || b.short - a.short);
   }
 
   /**

@@ -246,3 +246,18 @@ test('v5 conversion: every 12-hour shift gets a 4-hour shift at its start; rotat
   assert.ok(s.patterns.some((p) => p.id === 'p_rot' && p.cycle.length === 49));
   assert.equal(s.center.maxConsecutiveDays, 4);
 });
+
+test('short shifts are split at shift changes: an opening 1100-0700 is a day shortage and a night shortage', () => {
+  const s = center();
+  s.lines[0].shiftTemplateId = 't_d12'; s.lines[1].shiftTemplateId = 't_n12'; // shifts 0700-1900 / 1900-0700
+  s.lines.forEach((l) => { l.patternId = 'p_rot'; });
+  const tue = D('2026-03-03');
+  const at = (d, hh) => d * 1440 + hh * 60;
+  const slot = (a, z) => ({ positionId: 'law', start: a, end: z, hours: (z - a) / 60 });
+  const g = B.groupGaps(s, [slot(at(tue, 11), at(tue + 1, 7)), slot(at(tue, 11), at(tue, 15))]);
+  const txt = g.map((x) => [P.DOW[x.dow], x.name, x.blockText, x.full, x.segments.map((y) => `${y.short}:${y.from}-${y.to}`).join(',')]);
+  assert.deepEqual(txt, [
+    ['Tue', 'days', '0700-1900', false, '2:1100-1500,1:1500-1900'],
+    ['Tue', 'nights', '1900-0700', true, '1:1900-0700'],
+  ]);
+});

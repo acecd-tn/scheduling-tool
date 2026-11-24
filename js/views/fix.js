@@ -25,12 +25,16 @@
   const shiftWord = (tplId) => { const t = App.tpl(tplId); return t ? B.blockName(P.parseTime(t.start)) : 'shift'; };
   const tplTime = (tplId) => { const t = App.tpl(tplId); return t ? `${t.start.replace(':', '')}–${P.mil(P.parseTime(t.start) + t.hours * 60)}` : ''; };
 
-  /** "Fri nights are 1 short for 3 weeks (Nov 27, Dec 4, Dec 11)" */
+  /** How short, in the shift's own terms: "1 short all shift" or "2 short 1100–1500, 1 short 1500–1900". */
+  function shortText(g) {
+    if (g.full) return `${g.short} short all shift`;
+    return g.segments.map((x) => `${x.short} short ${x.from}–${x.to}`).join(', ');
+  }
+  /** "Fri nights (1900–0700) are 1 short all shift for 2 weeks (11/27, 12/4)" */
   function gapSentence(g) {
-    const when = g.when ? ` ${g.when}` : '';
-    const who = `${g.short} short`;
-    if (g.days.length > 1) return `<b>${DOWS[g.dow]} ${g.name}${when}</b> are ${who} for ${g.days.length} weeks <span class="muted">(${dateList(g.days)})</span>`;
-    return `<b>${DOWS[g.dow]} ${one[g.name] || g.name}${when}, ${dateList(g.days)}</b>, is ${who}`;
+    const shift = `(${g.blockText.replace('-', '–')})`;
+    if (g.days.length > 1) return `<b>${DOWS[g.dow]} ${g.name}</b> <span class="muted">${shift}</span>: <b>${shortText(g)}</b> for ${g.days.length} weeks <span class="muted">(${dateList(g.days)})</span>`;
+    return `<b>${DOWS[g.dow]} ${one[g.name] || g.name}, ${dateList(g.days)}</b> <span class="muted">${shift}</span>: <b>${shortText(g)}</b>`;
   }
 
   function compute(st) {
@@ -51,7 +55,7 @@
       const skipped = u.skips.size;
 
       const gapsHtml = plan.gaps.length
-        ? `<ul class="fix-list">${plan.gaps.map((g) => `<li>${gapSentence(g)} <span class="small muted">${esc(g.consoles.map((p) => App.posName(p)).join(', '))} · ${hrs(g.hours)} h</span></li>`).join('')}</ul>`
+        ? `<ul class="fix-list">${plan.gaps.map((g) => `<li>${gapSentence(g)} <span class="small muted">${esc(g.consoles.map((p) => App.posName(p)).join(', '))}</span></li>`).join('')}</ul>`
         : '<div class="empty">Every shift is at minimum for the next ' + weeks + ' weeks.</div>';
 
       const item = (kind, i, text, sub, extra = '') => `<div class="fix-item">
