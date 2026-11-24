@@ -467,6 +467,7 @@
   const moveKey = (m) => `m|${m.employeeId}|${m.offDate}|${m.workDate}`;
   const ptKey = (o) => `p|${o.employeeId}|${o.fill.date}|${o.fill.start}`;
   const trainKey = (t) => `t|${t.employeeId}|${t.date}`;
+  const prefKey = (o) => `q|${o.employeeId}|${o.fill.date}|${o.fill.start}`;
 
   function cloneForPlan(state) {
     return Object.assign({}, state, { shiftMoves: (state.shiftMoves || []).slice(), fills: state.fills.slice(), exceptions: state.exceptions.slice() });
@@ -496,22 +497,31 @@
 
     // Per class, per scheduling day: uncovered person-hours on the class's consoles.
     const startMin = P.schedulingDayStart(state, fromDay);
+    // Also: hours below preferred staffing (people short of preferred, above minimum).
+    const prefRules = P.preferredRules(state);
+    const prefAt = (jcId, abs) => (prefRules.length ? P.preferredAt(state, jcId, Math.floor(abs / 1440), Math.floor(P.mod(abs, 1440) / 60), prefRules) : 0);
     const classScore = (st, d0, d1) => {
       const cov = P.coverage(st, d0, d1 + 1);
       const out = {};
       for (const x of classes) {
-        let total = 0, sq = 0;
-        const perDay = [];
+        let total = 0, sq = 0, pref = 0;
+        const perDay = [], prefDay = [];
         for (let d = d0; d <= d1; d++) {
-          let u = 0;
+          let u = 0, q = 0;
           const h0 = Math.floor(((d - d0) * 1440 + startMin) / 60);
-          for (let h = h0; h < h0 + 24; h++) for (const pid of x.consoles) {
-            const g = (cov.required[pid][h] || 0) - (cov.staffed[pid][h] || 0);
-            if (g > 1e-6) u += Math.ceil(g - 1e-6);
+          for (let h = h0; h < h0 + 24; h++) {
+            let stf = 0, req = 0;
+            for (const pid of x.consoles) {
+              const g = (cov.required[pid][h] || 0) - (cov.staffed[pid][h] || 0);
+              if (g > 1e-6) u += Math.ceil(g - 1e-6);
+              stf += cov.staffed[pid][h] || 0; req += cov.required[pid][h] || 0;
+            }
+            const c = prefAt(x.jobClass.id, cov.base + h * 60);
+            if (c) q += Math.max(0, Math.ceil(c - Math.max(stf, req) - 1e-6));
           }
-          perDay.push(u); total += u; sq += u * u;
+          perDay.push(u); prefDay.push(q); total += u; sq += u * u; pref += q;
         }
-        out[x.jobClass.id] = { total, sq, perDay, value: x.level.level === 'critical' ? sq : total };
+        out[x.jobClass.id] = { total, sq, perDay, pref, prefDay, value: x.level.level === 'critical' ? sq : total };
       }
       return { out, cov };
     };
@@ -539,7 +549,7 @@
       for (const e of temp.employees) {
         if (!P.countable(e) || P.isPartTime(e) || e.status !== 'active' && e.status !== 'trainee') continue;
         const x = info[classOfEmp[e.id]];
-        if (!x || base.out[x.jobClass.id].total === 0) continue;
+        if (!x || (base.out[x.jobClass.id].total === 0 && base.out[x.jobClass.id].pref === 0)) continue;
         const mine = regs.filter((r) => r.employeeId === e.id && r.day >= fromDay && r.day <= to && !r.moveId);
         const workDays = new Set(regs.filter((r) => r.employeeId === e.id).map((r) => r.day));
         const certs = P.certifications(e).filter((pid) => x.consoles.includes(pid));
@@ -567,7 +577,11 @@
             const gs = g * 1440 + tplStart, ge = gs + hours * 60;
             // Only worth it if the new day has a gap they could fill.
             let helps = false;
-            for (let h = hourIdx(gs); h < hourIdx(ge) && !helps; h++) for (const pid of certs) if (((cov.required[pid] || [])[h] || 0) - ((cov.staffed[pid] || [])[h] || 0) > 1e-6) { helps = true; break; }
+            for (let h = hourIdx(gs); h < hourIdx(ge) && !helps; h++) {
+              for (const pid of certs) if (((cov.required[pid] || [])[h] || 0) - ((cov.staffed[pid] || [])[h] || 0) > 1e-6) { helps = true; break; }
+              const c = prefAt(x.jobClass.id, cov.base + h * 60);
+              if (!helps && c && c - Math.max(aggAt(x, h, 'staffed'), aggAt(x, h, 'required')) > 1e-6) helps = true;
+            }
             if (!helps) continue;
             const others = (ivBy[e.id] || []).filter((iv) => !(iv.kind === 'regular' && iv.day === r.day));
             if (!restOk(temp, others, gs, ge)) continue;
@@ -593,13 +607,16 @@
             const d0 = Math.min(r.day, g), d1 = Math.max(r.day, g);
             const pre = classScore(temp, d0, d1).out[x.jobClass.id];
             const post = classScore(trial, d0, d1).out[x.jobClass.id];
-            const raw = (x.level.level === 'critical' ? pre.sq - post.sq : pre.total - post.total);
+            // Real gaps first; preferred staffing only counts once no real gap gets worse.
+            const minGain = x.level.level === 'critical' ? pre.sq - post.sq : pre.total - post.total;
+            if (minGain < 0) continue;
+            const raw = minGain + 0.25 * (pre.pref - post.pref);
             if (raw <= 0) continue;
             if (x.level.level !== 'critical' && post.perDay[r.day - d0] > pre.perDay[r.day - d0]) continue; // no new gap on the day off
             // Prefer days that keep the relief margin, spread changes across people, and
             // use a 5th day in a row only when nothing else works.
             const gain = raw + (keepsMargin ? 0.5 : 0) - 0.1 * moves.filter((m) => m.employeeId === e.id).length - (emergency ? 0.75 : 0);
-            if (!best || gain > best.gain) best = { gain, closed: pre.total - post.total, move: mv, jobClassId: x.jobClass.id, emergency };
+            if (!best || gain > best.gain) best = { gain, closed: pre.total - post.total, prefClosed: pre.pref - post.pref, move: mv, jobClassId: x.jobClass.id, emergency };
           }
         }
       }
@@ -607,7 +624,7 @@
       best.move.id = P.uid('mv');
       if (best.emergency) best.move.emergency = true;
       temp.shiftMoves.push(best.move);
-      moves.push({ employeeId: best.move.employeeId, offDate: best.move.offDate, workDate: best.move.workDate, templateId: best.move.templateId, jobClassId: best.jobClassId, gapHoursClosed: best.closed, emergency: best.emergency });
+      moves.push({ employeeId: best.move.employeeId, offDate: best.move.offDate, workDate: best.move.workDate, templateId: best.move.templateId, jobClassId: best.jobClassId, gapHoursClosed: best.closed, prefHoursClosed: best.prefClosed, emergency: best.emergency });
     }
 
     // Part-timers under their cap, before any overtime (never past the days-in-a-row limit).
@@ -678,6 +695,29 @@
       }
     }
 
+    // Preferred staffing: spare part-time hours (straight time, under the cap) for hours
+    // that are at minimum but below preferred. Never overtime.
+    const prefOffers = [];
+    if (prefRules.length && opts.preferred !== false) {
+      const pslots = P.preferredGaps(temp, fromDay, to).filter((x) => x.end > now && x.start >= now && x.hours >= 4);
+      for (const slot of pslots) {
+        const x = info[slot.jobClassId];
+        if (!x) continue;
+        const cands = P.fillCandidates(temp, slot, { order: 'voluntary', jobClassId: slot.jobClassId })
+          .filter((cd) => cd.partTime && cd.eligible && !cd.otHours && !cd.warnings.some((w) => /in a row/.test(w)));
+        for (const pick of cands) {
+          const pid = P.certifications(pick.emp).find((q) => x.consoles.includes(q));
+          if (!pid) continue;
+          const fill = { id: P.uid('ot'), date: P.fmtDate(Math.floor(slot.start / 1440)), start: P.timeStr(slot.start), hours: slot.hours, positionId: pid, employeeId: pick.emp.id, type: 'voluntary', reason: 'preferred', status: 'scheduled' };
+          const offer = { employeeId: pick.emp.id, slot, fill, cost: pick.cost, weekHours: pick.weekHours, cap: pick.cap, jobClassId: slot.jobClassId };
+          if (skip.has(prefKey(offer))) continue;
+          temp.fills.push(fill);
+          prefOffers.push(offer);
+          break;
+        }
+      }
+    }
+
     // 4-hour shifts that could go to training: coverage stays at minimum without anyone
     // on overtime (spare staff, or a part-timer covers the seat).
     const training = [];
@@ -694,7 +734,9 @@
         const t = { employeeId: e.id, date: exc.date, start: exc.start, hours: exc.hours, templateId: r.templateId, exception: exc, cover: null };
         if (skip.has(trainKey(t))) continue;
         const before = P.openings(temp, r.day - 1, r.day + 1).slots.length;
+        const prefBefore = prefRules.length ? P.preferredGaps(temp, r.day, r.day).reduce((t, g) => t + g.hours, 0) : 0;
         temp.exceptions.push(exc);
+        if (prefRules.length && P.preferredGaps(temp, r.day, r.day).reduce((t, g) => t + g.hours, 0) > prefBefore + 1e-9) { temp.exceptions.pop(); continue; }
         const after = P.openings(temp, r.day - 1, r.day + 1).slots.filter((s) => s.causes && s.causes.some((x) => x.exceptionId === exc.id));
         let ok = after.length === 0;
         if (!ok && after.length === 1) {
@@ -718,7 +760,7 @@
     const hours = slots.reduce((t, s) => t + s.hours, 0);
     const cost = slots.reduce((t, s) => t + P.slotCost(temp, s), 0);
     const after = classScore(temp, fromDay, to).out;
-    return { from: fromDay, to, classes, moves, ptOffers, relief, training, remaining: { slots, hours, cost }, after, skippedForNotice, blockedByRun, noticeDays: notice, state: temp };
+    return { from: fromDay, to, classes, moves, ptOffers, relief, prefOffers, training, remaining: { slots, hours, cost }, after, skippedForNotice, blockedByRun, noticeDays: notice, state: temp };
   }
 
   // ------------------------------------------------------- plan coverage
@@ -793,21 +835,29 @@
     const now = opts.now != null ? opts.now : P.nowAbs();
     const gapsBefore = P.openings(state, start, end).slots.filter((s) => s.end > now);
     let temp = cloneForPlan(state);
-    const all = { moves: [], ptOffers: [], relief: [], training: [], skippedForNotice: 0, blockedByRun: 0, classes: null };
+    const all = { moves: [], ptOffers: [], relief: [], prefOffers: [], training: [], skippedForNotice: 0, blockedByRun: 0, classes: null };
     for (let w = 0; w < weeks; w++) {
       const r = balanceWeek(temp, start + 7 * w, Object.assign({}, opts, { temp: true, now }));
       temp = r.state;
-      all.moves.push(...r.moves); all.ptOffers.push(...r.ptOffers); all.relief.push(...r.relief); all.training.push(...r.training);
+      all.moves.push(...r.moves); all.ptOffers.push(...r.ptOffers); all.relief.push(...r.relief); all.prefOffers.push(...r.prefOffers); all.training.push(...r.training);
       all.skippedForNotice += r.skippedForNotice; all.blockedByRun += r.blockedByRun;
       if (!all.classes) all.classes = r.classes;
     }
     const remainingSlots = P.openings(temp, start, end).slots.filter((s) => s.end > now);
+    const prefNow = (st) => P.preferredGaps(st, start, end).filter((s) => s.end > now).map((s) => Object.assign({}, s, { start: Math.max(s.start, now - P.mod(now, 60)) })).map((s) => Object.assign(s, { hours: (s.end - s.start) / 60 }));
+    const prefBefore = prefNow(state), prefAfter = prefNow(temp);
+    const qg = {};
+    for (const o of all.prefOffers) {
+      const k = [o.employeeId, P.dow(P.parseDate(o.fill.date)), o.fill.start, o.fill.hours].join('|');
+      const g = qg[k] || (qg[k] = { key: k, kind: 'pref', employeeId: o.employeeId, dow: P.dow(P.parseDate(o.fill.date)), start: o.fill.start, hours: o.fill.hours, positionId: o.fill.positionId, items: [], cost: 0, skipKeys: [] });
+      g.items.push(o); g.cost += o.cost; g.skipKeys.push(prefKey(o));
+    }
     // Group the same change across weeks: "Move Smith's day off from Tue to Fri (3 weeks)".
     const mg = {};
     for (const m of all.moves) {
       const k = [m.employeeId, P.dow(P.parseDate(m.offDate)), P.dow(P.parseDate(m.workDate)), m.templateId].join('|');
       const g = mg[k] || (mg[k] = { key: k, kind: 'move', employeeId: m.employeeId, offDow: P.dow(P.parseDate(m.offDate)), workDow: P.dow(P.parseDate(m.workDate)), templateId: m.templateId, jobClassId: m.jobClassId, items: [], hours: 0, emergency: false });
-      g.items.push(m); g.hours += m.gapHoursClosed; g.emergency = g.emergency || !!m.emergency;
+      g.items.push(m); g.hours += m.gapHoursClosed; g.prefHours = (g.prefHours || 0) + (m.prefHoursClosed || 0); g.emergency = g.emergency || !!m.emergency;
       (g.skipKeys ||= []).push(moveKey(m));
     }
     const pg = {};
@@ -832,7 +882,10 @@
       gaps: groupGaps(state, gapsBefore), gapHours: gapsBefore.reduce((t, s) => t + s.hours, 0),
       moves: Object.values(mg).sort((a, b) => P.parseDate(a.items[0].workDate) - P.parseDate(b.items[0].workDate)),
       ptOffers: Object.values(pg).sort((a, b) => P.parseDate(a.items[0].fill.date) - P.parseDate(b.items[0].fill.date)),
-      training, relief, reliefSaved: relief.reduce((t, g) => t + g.saved, 0), reliefHours: relief.reduce((t, g) => t + g.hours * g.items.length, 0), remaining,
+      training, relief,
+      prefGaps: groupGaps(state, prefBefore), prefHours: prefBefore.reduce((t, s) => t + s.hours, 0),
+      prefOffers: Object.values(qg).sort((a, b) => P.parseDate(a.items[0].fill.date) - P.parseDate(b.items[0].fill.date)),
+      prefLeft: groupGaps(state, prefAfter), prefLeftHours: prefAfter.reduce((t, s) => t + s.hours, 0), reliefSaved: relief.reduce((t, g) => t + g.saved, 0), reliefHours: relief.reduce((t, g) => t + g.hours * g.items.length, 0), remaining,
       hours: remainingSlots.reduce((t, s) => t + s.hours, 0), cost: remainingSlots.reduce((t, s) => t + P.slotCost(state, s), 0),
       skippedForNotice: all.skippedForNotice, blockedByRun: all.blockedByRun, noticeDays: +state.center.dayOffNoticeDays || 0,
     };
@@ -858,6 +911,7 @@
   }
 
   const api = {
+    prefKey,
     suggestLines, toLineRecords, applyToCurrentLines, balanceWeek, planCoverage, groupGaps, suggestPeakStart,
     weeklyMinimum, lineCandidates, linesProfile, rotationPattern, blockName, moveKey, ptKey, trainKey, WEEK,
   };

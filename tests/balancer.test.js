@@ -261,3 +261,64 @@ test('short shifts are split at shift changes: an opening 1100-0700 is a day sho
     ['Tue', 'nights', '1900-0700', true, '1:1900-0700'],
   ]);
 });
+
+test('preferred staffing: hours at minimum but below preferred, counted beyond any real gap', () => {
+  const s = center(); // a, b work Sun-Thu 0700-1500; minimum 1 0700-1500 every day
+  const mon = D('2026-03-02'), fri = D('2026-03-06');
+  s.center.preferred = [{ id: 'p', jobClassId: 'tc', days: [1, 5], from: 7, to: 15, count: 2 }];
+  assert.equal(P.preferredGaps(s, mon, mon).length, 0);             // 2 on Monday: met
+  s.center.preferred[0].count = 3;
+  const g = P.preferredGaps(s, mon, mon);
+  assert.deepEqual(g.map((x) => [P.mil(x.start), P.mil(x.end), x.level]), [['0700', '1500', 1]]);
+  // Friday: nobody on, minimum 1 (an opening) and preferred 3 → 2 below preferred beyond the gap.
+  assert.equal(P.preferredGaps(s, fri, fri).length, 2);
+  assert.equal(P.openings(s, fri, fri).slots.length, 1);
+});
+
+test('preferred staffing: a free day-off move fills it without opening a real gap', () => {
+  const s = center();
+  s.center.maxConsecutiveDays = 0;
+  for (const [d, row] of s.minimums.law.entries()) for (let h = 0; h < 24; h++) row[h] = d <= 4 && h >= 7 && h < 15 ? 1 : 0; // Sun-Thu only
+  s.center.preferred = [{ id: 'p', jobClassId: 'tc', days: [5], from: 7, to: 15, count: 1 }];      // like someone on Fri
+  const opts = { today: D('2026-01-05'), now: D('2026-01-05') * 1440 };
+  const r = B.balanceWeek(s, D('2026-03-01'), opts);
+  assert.equal(r.moves.length, 1);
+  assert.equal(r.moves[0].workDate, '2026-03-06');
+  assert.equal(r.moves[0].gapHoursClosed, 0);
+  assert.ok(r.moves[0].prefHoursClosed > 0);
+  assert.equal(r.remaining.hours, 0);                                // no real gap anywhere
+});
+
+test('preferred staffing: spare part-time hours only after real gaps, never overtime; training keeps preferred', () => {
+  const s = center();
+  s.center.maxConsecutiveDays = 0;
+  s.lines[1].employeeId = null;                                       // only a works Sun-Thu
+  Object.assign(s.employees[1], { employmentType: 'part', maxWeeklyHours: 16 });
+  s.center.preferred = [{ id: 'p', jobClassId: 'tc', days: [1], from: 7, to: 15, count: 2 }];
+  const opts = { today: D('2026-01-05'), now: D('2026-01-05') * 1440 };
+  const r = B.balanceWeek(s, D('2026-03-01'), opts);
+  assert.equal(r.ptOffers.length, 2);                                 // Fri and Sat gaps use the 16 h
+  assert.equal(r.prefOffers.length, 0);
+  s.employees[1].maxWeeklyHours = 24;
+  const r2 = B.balanceWeek(s, D('2026-03-01'), opts);
+  assert.equal(r2.ptOffers.length, 2);
+  assert.equal(r2.prefOffers.length, 1);                              // then Monday up to 2
+  assert.equal(r2.prefOffers[0].fill.date, '2026-03-02');
+  assert.ok(r2.prefOffers.every((o) => o.fill.type === 'voluntary'));
+  const plan = B.planCoverage(s, D('2026-03-01'), Object.assign({ weeks: 1 }, opts));
+  assert.ok(plan.prefHours > 0 && plan.prefLeftHours === 0);
+});
+
+test('training offers never drop a shift below preferred staffing', () => {
+  const s = center();
+  s.center.maxConsecutiveDays = 0;
+  for (const row of s.minimums.law) row.fill(0);
+  for (let h = 7; h < 15; h++) s.minimums.law[1][h] = 1;
+  s.patterns.push({ id: 'p_mon', name: 'Mon', cycle: [0, 1, 0, 0, 0, 0, 0] });
+  s.lines[0].shiftTemplateId = 't_d4'; s.lines[0].patternId = 'p_mon';
+  s.lines[1].patternId = 'p_mon';
+  const opts = { today: D('2026-01-05'), now: D('2026-01-05') * 1440 };
+  assert.equal(B.balanceWeek(s, D('2026-03-01'), opts).training.length, 1);
+  s.center.preferred = [{ id: 'p', jobClassId: 'tc', days: [1], from: 7, to: 11, count: 2 }];
+  assert.equal(B.balanceWeek(s, D('2026-03-01'), opts).training.length, 0);
+});

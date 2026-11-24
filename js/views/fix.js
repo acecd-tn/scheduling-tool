@@ -26,15 +26,15 @@
   const tplTime = (tplId) => { const t = App.tpl(tplId); return t ? `${t.start.replace(':', '')}–${P.mil(P.parseTime(t.start) + t.hours * 60)}` : ''; };
 
   /** How short, in the shift's own terms: "1 short all shift" or "2 short 1100–1500, 1 short 1500–1900". */
-  function shortText(g) {
-    if (g.full) return `${g.short} short all shift`;
-    return g.segments.map((x) => `${x.short} short ${x.from}–${x.to}`).join(', ');
+  function shortText(g, word = 'short') {
+    if (g.full) return `${g.short} ${word} all shift`;
+    return g.segments.map((x) => `${x.short} ${word} ${x.from}–${x.to}`).join(', ');
   }
   /** "Fri nights (1900–0700) are 1 short all shift for 2 weeks (11/27, 12/4)" */
-  function gapSentence(g) {
+  function gapSentence(g, word) {
     const shift = `(${g.blockText.replace('-', '–')})`;
-    if (g.days.length > 1) return `<b>${DOWS[g.dow]} ${g.name}</b> <span class="muted">${shift}</span>: <b>${shortText(g)}</b> for ${g.days.length} weeks <span class="muted">(${dateList(g.days)})</span>`;
-    return `<b>${DOWS[g.dow]} ${one[g.name] || g.name}, ${dateList(g.days)}</b> <span class="muted">${shift}</span>: <b>${shortText(g)}</b>`;
+    if (g.days.length > 1) return `<b>${DOWS[g.dow]} ${g.name}</b> <span class="muted">${shift}</span>: <b>${shortText(g, word)}</b> for ${g.days.length} weeks <span class="muted">(${dateList(g.days)})</span>`;
+    return `<b>${DOWS[g.dow]} ${one[g.name] || g.name}, ${dateList(g.days)}</b> <span class="muted">${shift}</span>: <b>${shortText(g, word)}</b>`;
   }
 
   function compute(st) {
@@ -57,6 +57,9 @@
       const gapsHtml = plan.gaps.length
         ? `<ul class="fix-list">${plan.gaps.map((g) => `<li>${gapSentence(g)} <span class="small muted">${esc(g.consoles.map((p) => App.posName(p)).join(', '))}</span></li>`).join('')}</ul>`
         : '<div class="empty">Every shift is at minimum for the next ' + weeks + ' weeks.</div>';
+      const hasPref = P.preferredRules(st).length > 0;
+      const prefHtml = hasPref ? `<h3 style="margin-top:14px">Below preferred <span class="small muted">at minimum, but under your preferred staffing (Settings → Preferred staffing)</span></h3>
+        ${plan.prefGaps.length ? `<ul class="fix-list">${plan.prefGaps.map((g) => `<li>${gapSentence(g, 'under preferred')}</li>`).join('')}</ul>` : '<p class="small muted">Preferred staffing is met for the next ' + weeks + ' weeks.</p>'}` : '';
 
       const item = (kind, i, text, sub, extra = '') => `<div class="fix-item">
           <div class="fix-text">${text}${sub ? `<div class="small muted">${sub}</div>` : ''}</div>
@@ -66,8 +69,9 @@
       const moves = plan.moves.map((m, i) => {
         const first = m.items[0];
         const dates = m.items.map((x) => `${P.shortDate(P.parseDate(x.workDate)).replace(/^\w+ /, '')}`).join(', ');
-        const text = `${DOWS[m.workDow]} ${shiftWord(m.templateId)} short${m.items.length > 1 ? ` for ${m.items.length} weeks` : ''} (${dates}). <b>Have ${esc(name(m.employeeId))} work ${DOWS[m.workDow]} instead of ${DOWS[m.offDow]}?</b>`;
-        const sub = `${DOWS[m.offDow]} becomes a day off; same ${tplTime(first.templateId)} shift, same 40 hours that week. Closes ${hrs(m.hours)} h of gaps.`;
+        const prefOnly = !m.hours && m.prefHours > 0;
+        const text = `${DOWS[m.workDow]} ${shiftWord(m.templateId)} ${prefOnly ? 'under preferred' : 'short'}${m.items.length > 1 ? ` for ${m.items.length} weeks` : ''} (${dates}). <b>Have ${esc(name(m.employeeId))} work ${DOWS[m.workDow]} instead of ${DOWS[m.offDow]}?</b>`;
+        const sub = `${DOWS[m.offDow]} becomes a day off; same ${tplTime(first.templateId)} shift, same hours that week. ${m.hours ? `Closes ${hrs(m.hours)} h of gaps.` : ''}${m.prefHours ? ` Brings ${hrs(m.prefHours)} h up to preferred staffing.` : ''}`;
         const flag = m.emergency ? '<span class="badge bad" title="This makes 5 days in a row. Allowed only as an emergency; it is flagged on the schedule.">5 in a row · emergency</span> ' : '';
         return item('move', i, flag + text, sub);
       }).join('');
@@ -85,6 +89,11 @@
         const text = `<b>Have ${esc(name(g.ptId))} (part-time) work ${DOWS[g.dow]} ${g.start.replace(':', '')}–${end(g.start, g.hours)} for ${esc(name(g.employeeId))}?</b> <span class="muted">(${dates})</span>`;
         const sub = `${esc(name(g.employeeId))} works ${g.keepStart.replace(':', '')}–${end(g.keepStart, g.keepHours)} that day and stays at ${+st.center.otThresholdHours || 40} hours that week instead of ${hrs(g.items[0].weekHours)}. Saves about ${money(g.saved)} in overtime.`;
         return item('relief', i, text, sub);
+      }).join('');
+      const prefs = plan.prefOffers.map((o, i) => {
+        const dates = o.items.map((x) => P.shortDate(P.parseDate(x.fill.date)).replace(/^\w+ /, '')).join(', ');
+        const text = `<b>Offer ${esc(name(o.employeeId))} (part-time) ${DOWS[o.dow]} ${o.start.replace(':', '')}–${end(o.start, o.hours)}</b> to reach preferred staffing${o.items.length > 1 ? ` for ${o.items.length} weeks` : ''} <span class="muted">(${dates})</span>`;
+        return item('pref', i, text, `Optional. Straight time, about ${money(o.cost)} · stays under their weekly cap`);
       }).join('');
       const train = plan.training.map((t, i) => {
         const text = `<b>Use ${esc(name(t.employeeId))}'s 4-hour shift ${P.shortDate(P.parseDate(t.date))} ${t.start.replace(':', '')}–${P.mil(P.parseTime(t.start) + t.hours * 60)} for training</b>`;
@@ -104,9 +113,10 @@
           ${App.kpi('Short shifts', plan.gaps.length, `${hrs(plan.gapHours)} h below minimum`, plan.gaps.length ? 'bad' : 'ok')}
           ${App.kpi('Covered without OT', `${hrs(Math.max(0, plan.gapHours - plan.hours))} h`, 'if you approve the suggestions below', plan.gapHours > plan.hours ? 'ok' : '')}
           ${App.kpi('Still needs overtime', `${hrs(plan.hours)} h`, `about ${money(plan.cost)}`, plan.hours ? 'warn' : 'ok')}
+          ${hasPref ? App.kpi('Below preferred', `${hrs(plan.prefHours)} h`, plan.prefOffers.length ? `${hrs(plan.prefHours - plan.prefLeftHours)} h coverable with part-timers` : 'still at minimum', plan.prefHours ? 'warn' : 'ok') : ''}
         </div>
 
-        <div class="panel"><h2>1. Which shifts are short</h2>${gapsHtml}</div>
+        <div class="panel"><h2>1. Which shifts are short</h2>${gapsHtml}${prefHtml}</div>
 
         <div class="panel"><h2>2. Who can cover without overtime ${plan.moves.length + plan.ptOffers.length + plan.relief.length > 1 ? '<button class="btn sm" data-action="fix-approve-all">Approve all</button>' : ''}</h2>
           <h3>Move days off <span class="small muted">same shift, same work week, rest rules, ${plan.noticeDays}-day notice, max ${+st.center.maxConsecutiveDays || '—'} days in a row</span></h3>
@@ -117,6 +127,9 @@
           <h3>Cut scheduled overtime <span class="small muted">a part-timer works part of a ${(+st.center.otThresholdHours || 40) + 8}-hour week so the full-timer stays at ${+st.center.otThresholdHours || 40}</span></h3>
           ${relief || '<p class="small muted">No part-timer has room to take part of a long week (or none is far enough out for the notice period).</p>'}
           ${plan.relief.length ? `<p class="small muted">Together: about <b>${hrs(plan.reliefHours)} h</b> less overtime, about <b>${money(plan.reliefSaved)}</b>.</p>` : ''}
+          ${hasPref ? `<h3>Preferred staffing <span class="small muted">optional: spare part-time hours after the gaps above are covered; never overtime</span></h3>
+          ${prefs || '<p class="small muted">No spare part-time hours for the hours below preferred.</p>'}
+          ${plan.prefLeftHours ? `<p class="small muted">${hrs(plan.prefLeftHours)} h stay below preferred (still at minimum).</p>` : ''}` : ''}
           ${train ? `<details class="section"><summary><b>Training time available (${plan.training.length})</b> <span class="small muted">4-hour shifts that can go to training without dropping below minimum or paying overtime</span></summary>${train}</details>` : ''}
         </div>
 
@@ -134,7 +147,7 @@
 
   const groupOf = (kind, i) => {
     const p = App.ui.fix.plan;
-    return kind === 'move' ? p.moves[i] : kind === 'pt' ? p.ptOffers[i] : kind === 'relief' ? p.relief[i] : p.training[i];
+    return kind === 'move' ? p.moves[i] : kind === 'pt' ? p.ptOffers[i] : kind === 'pref' ? p.prefOffers[i] : kind === 'relief' ? p.relief[i] : p.training[i];
   };
   const nowIso = () => new Date().toISOString();
 
@@ -152,6 +165,12 @@
         s.fills.push(Object.assign({ id: P.uid('ot'), note: 'Fix coverage: part-time before overtime', createdAt: ctx.now }, fill, { type: 'voluntary', status: 'scheduled' }));
       }
       App.A.notify(s, g.employeeId, 'Extra shift scheduled', `${g.items.map((o) => `${P.shortDate(P.parseDate(o.fill.date))} ${o.fill.start.replace(':', '')} (${o.fill.hours}h)`).join(', ')} on ${App.posName(g.positionId)}, straight time.`, ctx, 'me');
+    } else if (kind === 'pref') {
+      for (const o of g.items) {
+        const { id: _q, ...fill } = o.fill;
+        s.fills.push(Object.assign({ id: P.uid('ot'), note: 'Fix coverage: part-timer for preferred staffing', createdAt: ctx.now }, fill, { type: 'voluntary', status: 'scheduled' }));
+      }
+      App.A.notify(s, g.employeeId, 'Extra shift scheduled', `${g.items.map((o) => `${P.shortDate(P.parseDate(o.fill.date))} ${o.fill.start.replace(':', '')} (${o.fill.hours}h)`).join(', ')}, straight time.`, ctx, 'me');
     } else if (kind === 'relief') {
       for (const r of g.items) {
         const exc = Object.assign({}, r.exception, { id: P.uid('ex'), createdAt: ctx.now });
@@ -178,7 +197,7 @@
   App.actions['fix-approve'] = (el) => {
     const kind = el.dataset.kind, g = groupOf(kind, +el.dataset.i);
     if (!g) return;
-    App.commit((s) => applyGroup(s, kind, g), kind === 'move' ? 'Approved; employee notified' : kind === 'pt' ? 'Part-timer scheduled and notified' : 'Training scheduled; employee notified');
+    App.commit((s) => applyGroup(s, kind, g), kind === 'move' ? 'Approved; employee notified' : kind === 'pt' || kind === 'pref' ? 'Part-timer scheduled and notified' : kind === 'relief' ? 'Approved; both notified' : 'Training scheduled; employee notified');
   };
   App.actions['fix-approve-all'] = () => {
     const p = App.ui.fix.plan;

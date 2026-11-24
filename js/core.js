@@ -142,7 +142,11 @@
       rotationPatternId: 'p_rot', // the rotation the line tools build
       fixHorizonWeeks: 4,         // how far ahead "Fix coverage" looks
       offerTraining: true,        // Fix coverage offers 4-hour shifts for training when coverage allows
-      offerOtRelief: true,        // Fix coverage suggests part-timers to bring weeks over 40 hours back to 40
+      offerOtRelief: true,
+      // Preferred staffing above the minimum, per job class (people across its consoles):
+      // [{ id, jobClassId, days: [0-6], from: 11, to: 19, count: 4 }]. Below preferred is
+      // not a gap; Fix coverage fills it only with free day-off moves and spare part-time hours.
+      preferred: [],        // Fix coverage suggests part-timers to bring weeks over 40 hours back to 40
       levelSeen: {},              // last staffing level acknowledged per job class
       dayStartHour: '',           // scheduling day start hour (0-23); '' = earliest regular shift start
       shiftBoundaries: '',        // e.g. '0700,1900'; '' = worked out from the shifts people work
@@ -1459,6 +1463,58 @@
     return blocks;
   }
 
+  // ------------------------------------------------------------- preferred
+  function preferredRules(state) {
+    return (state.center.preferred || []).filter((r) => r && r.jobClassId && +r.count > 0 && (r.days || []).length && +r.to > +r.from);
+  }
+  /** Preferred head count for a job class at a day and hour (0 = none set). */
+  function preferredAt(state, jobClassId, day, hour, rules = preferredRules(state)) {
+    let c = 0;
+    const dw = dow(day);
+    for (const r of rules) if (r.jobClassId === jobClassId && r.days.map(Number).includes(dw) && hour >= +r.from && hour < +r.to) c = Math.max(c, +r.count);
+    return c;
+  }
+  /**
+   * Hours below preferred staffing (but at or above minimum: real gaps are openings).
+   * Returns slots like openings: { id, jobClassId, positionId, start, end, hours, level,
+   * kind: 'preferred' }, one per missing person, contiguous hours merged.
+   */
+  function preferredGaps(state, fromDay, toDay, opts = {}) {
+    const rules = preferredRules(state);
+    if (!rules.length) return [];
+    const cov = opts.cov || coverage(state, fromDay, toDay);
+    const out = [];
+    for (const jcId of [...new Set(rules.map((r) => r.jobClassId))]) {
+      const jc = jobClassById(state, jcId);
+      if (!jc) continue;
+      const pids = classConsoles(state, jc);
+      if (!pids.length) continue;
+      const def = new Array(cov.n || 0).fill(0);
+      const n = (toDay - fromDay + 1) * 24;
+      for (let i = 0; i < n; i++) {
+        const abs = fromDay * DAY + i * 60;
+        const c = preferredAt(state, jcId, Math.floor(abs / DAY), Math.floor(mod(abs, DAY) / 60), rules);
+        if (!c) continue;
+        let stf = 0, req = 0;
+        for (const pid of pids) { stf += (cov.staffed[pid] || [])[i] || 0; req += (cov.required[pid] || [])[i] || 0; }
+        def[i] = Math.max(0, Math.ceil(c - Math.max(stf, req) - 1e-6));
+      }
+      const maxDef = Math.max(0, ...def);
+      for (let k = 1; k <= maxDef; k++) {
+        let i = 0;
+        while (i < n) {
+          if (def[i] < k) { i++; continue; }
+          let j = i;
+          while (j < n && def[j] >= k) j++;
+          const start = fromDay * DAY + i * 60, end = fromDay * DAY + j * 60;
+          out.push({ id: `pref|${jcId}|${start}|${k}`, jobClassId: jcId, positionId: pids[0], start, end, hours: (end - start) / 60, level: k, kind: 'preferred', causes: [] });
+          i = j;
+        }
+      }
+    }
+    return out.sort((a, b) => a.start - b.start || a.level - b.level);
+  }
+
   /** The scheduling day an absolute minute falls in. */
   function schedulingDayOf(state, abs) {
     const startMin = schedulingDayStart(state, Math.floor(abs / DAY));
@@ -1472,6 +1528,8 @@
     s.center.name = 'Demo County Emergency Communications';
     // Work weeks run Monday-Sunday, like the 2-week schedule template.
     Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 6, otPeriodStart: '2026-10-05', lineMode: 'fixed' });
+    // Minimum 3; preferred 4 telecommunicators 1100-1900.
+    s.center.preferred = [{ id: 'pref_tc', jobClassId: 'jc_tc', days: [0, 1, 2, 3, 4, 5, 6], from: 11, to: 19, count: 4 }];
     // Minimums are set per discipline. Telecommunicators sit Law or Fire/EMS (most are
     // certified on both); supervisors have their own console.
     s.positions = [
@@ -1632,6 +1690,7 @@
     DAY, DOW, EXCEPTION_TYPES, FILL_TYPES, STATUSES, COLLECTIONS, PLANNED_LEAVE,
     jobClasses, jobClassOf, jobClassById, classMembers, classConsoles, empClass, lineClass, bidClass, certifications,
     schedulingDayStart, shiftBlocks, schedulingDayOf, importWindows,
+    preferredRules, preferredAt, preferredGaps,
     staffingLevel, levelRule, maxOffFor, projectLevels, onExtendedLeave, soloOn, LEVELS, EXTENDED_LEAVE,
     positionOrder, assignHour, diffState, diffEmpty, applyDiff, filterStateFor, plannedLeaveOn, overLeaveLimit,
     mod, pad, parseDate, fmtDate, dow, todayNum, nowAbs, parseTime, timeStr, mil, shortDate, uid, round2, groupBy,

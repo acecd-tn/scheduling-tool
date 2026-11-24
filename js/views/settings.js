@@ -82,6 +82,17 @@
           ${rotMode ? `<h3 style="margin-top:12px">When the 4-hour shift is worked</h3>
           ${shortRows ? `<table class="small"><thead><tr><th>Job class</th><th>Shift</th><th>4-hour shift</th></tr></thead><tbody>${shortRows}</tbody></table>
             <p class="small muted">A single schedule slot can use its own 4-hour shift (Schedules &amp; Bids → edit the schedule slot).</p>` : '<p class="small muted">Shows once people hold 12-hour schedule slots.</p>'}` : ''}
+          <h3 style="margin-top:12px">Preferred staffing <span class="small muted">above the minimum</span></h3>
+          <p class="small muted" style="margin:0 0 6px">How many people you'd like on, e.g. Telecommunicators 4 from 1100 to 1900. Below this isn't a gap: Fix coverage lists it separately and fills it only with free day-off moves and spare part-time hours, never overtime.</p>
+          <div class="table-wrap"><table class="small"><thead><tr><th>Job class</th><th>Days</th><th>From</th><th>To</th><th class="num">People</th><th></th></tr></thead><tbody>
+            ${(c.preferred || []).map((r, i) => `<tr><td><select data-change="pref-rule" data-i="${i}" data-f="jobClassId">${App.opts(P.jobClasses(st), r.jobClassId)}</select></td>
+              <td class="nowrap">${P.DOW.map((d, di) => `<label class="check" style="display:inline-flex;margin-right:4px" title="${d}"><input type="checkbox" data-change="pref-day" data-i="${i}" value="${di}" ${(r.days || []).map(Number).includes(di) ? 'checked' : ''}>${d[0]}</label>`).join('')}</td>
+              <td><select data-change="pref-rule" data-i="${i}" data-f="from">${Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${+r.from === h ? 'selected' : ''}>${P.pad(h)}00</option>`).join('')}</select></td>
+              <td><select data-change="pref-rule" data-i="${i}" data-f="to">${Array.from({ length: 24 }, (_, h) => h + 1).map((h) => `<option value="${h}" ${+r.to === h ? 'selected' : ''}>${P.pad(h % 24)}00</option>`).join('')}</select></td>
+              <td class="num"><input type="number" min="1" value="${esc(r.count)}" data-change="pref-rule" data-i="${i}" data-f="count" style="width:60px"></td>
+              <td><button class="btn sm danger" data-action="pref-del" data-i="${i}" title="Remove">✕</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">None set</td></tr>'}
+          </tbody></table></div>
+          <button class="btn sm" data-action="pref-add" style="margin-top:6px">+ Preferred staffing</button>
           <h3 style="margin-top:12px">Part-time staff</h3>
           <label class="check">${chk('partTimeFirst')} Offer open shifts to part-timers first (straight time, before full-time OT)</label>
           <div class="form-grid"><div class="field"><label>Default weekly cap (h)</label>${num('partTimeDefaultCap', 0.5)}</div></div>
@@ -251,6 +262,26 @@
     if (P.cycleMaxRun(cyc) > lim) return App.toast(`That base week makes ${P.cycleMaxRun(cyc)} days in a row somewhere in the 7 weeks (limit ${lim})`, true);
     App.commit((s) => { const p = window.PSAPBalance.rotationPattern(s); if (p) { p.cycle = cyc; p.base = b; } }, `Rotation saved (most in a row: ${P.cycleMaxRun(cyc)})`);
   };
+  const prefEdit = (fn, msg) => App.commit((s) => { const list = JSON.parse(JSON.stringify(s.center.preferred || [])); fn(list, s); s.center.preferred = list; }, msg || 'Saved');
+  App.actions['pref-add'] = () => prefEdit((list, s) => {
+    const jc = P.jobClasses(s).find((x) => P.classMembers(s, x).length) || P.jobClasses(s)[0];
+    const pids = jc ? P.classConsoles(s, jc) : [];
+    const min = pids.reduce((t, pid) => t + (+((s.minimums[pid] || [])[1] || [])[12] || 0), 0);
+    list.push({ id: P.uid('pref'), jobClassId: jc ? jc.id : '', days: [0, 1, 2, 3, 4, 5, 6], from: 11, to: 19, count: min + 1 });
+  }, 'Preferred staffing added');
+  App.actions['pref-del'] = (el) => prefEdit((list) => list.splice(+el.dataset.i, 1), 'Removed');
+  App.changes['pref-rule'] = (el) => prefEdit((list) => {
+    const r = list[+el.dataset.i]; if (!r) return;
+    const f = el.dataset.f;
+    r[f] = f === 'jobClassId' ? el.value : Math.max(f === 'count' ? 1 : 0, +el.value || 0);
+    if (+r.to <= +r.from) r.to = Math.min(24, +r.from + 1);
+  });
+  App.changes['pref-day'] = (el) => prefEdit((list) => {
+    const r = list[+el.dataset.i]; if (!r) return;
+    const d = +el.value, days = new Set((r.days || []).map(Number));
+    if (el.checked) days.add(d); else days.delete(d);
+    r.days = [...days].sort();
+  });
   App.changes['set-pos'] = (el) => { App.ui.settings.pos = el.value; App.render(); };
   App.changes['min-cell'] = (el) => App.silent((s) => { s.minimums[App.ui.settings.pos][+el.dataset.d][+el.dataset.h] = Math.max(0, +el.value || 0); });
   App.actions['qf-apply'] = () => {

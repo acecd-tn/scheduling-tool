@@ -125,6 +125,13 @@ and after. That matters for grievances and payroll disputes.
   or falls during peak call volume (per job class or schedule slot). Other 40-hour
   patterns (5×8, 4×10, 2×12 + 2×8) are there too; any custom schedule slot that would
   build in OT is flagged.
+- **Preferred staffing.** Settings → Schedule rules → Preferred staffing: how many people
+  you'd like on above the minimum, per job class, days and hours (e.g. Telecommunicators
+  4 from 1100 to 1900 every day, with a minimum of 3). Being below preferred isn't a
+  gap. Fix coverage lists those hours separately ("Sun days: 1 under preferred
+  1100–1900 for 4 weeks") and fills them only with day-off moves that open no real gap,
+  and with spare part-time hours after real gaps and overtime cuts are covered. It never
+  uses overtime for them, and training time never drops a shift below preferred.
 - **Days in a row.** Nobody should work more than 4 days in a row (a 4-hour shift
   counts as a day). Slots that do are flagged on Schedules & Bids and in the template
   preview, with a suggested fix: two slots on the same shift trade a work day and a day
