@@ -5,15 +5,16 @@
 
   App.ui.bid = { tab: 'lines', bidId: null, showPast: false };
 
+  const T = window.PSAPTemplate;
   const patLabel = (st, id) => (st.patterns.find((p) => p.id === id) || {}).name || '—';
 
   App.views.bid = {
     render(st, ui) {
       if (!App.isSup()) return employeeBid(st);
       const u = ui.bid;
-      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current schedule slots</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button><button class="${u.tab === 'import' ? 'on' : ''}" data-action="bid-tab" data-tab="import">Import schedule${(st.scheduleImports || []).length ? ` (${st.scheduleImports.length})` : ''}</button></div>`;
+      const tabs = `<div class="tabs"><button class="${u.tab === 'lines' ? 'on' : ''}" data-action="bid-tab" data-tab="lines">Current schedule slots</button><button class="${u.tab === 'template' ? 'on' : ''}" data-action="bid-tab" data-tab="template">Upload schedule template</button><button class="${u.tab === 'bids' ? 'on' : ''}" data-action="bid-tab" data-tab="bids">Shift bids (${st.bids.filter((b) => b.status !== 'applied').length} open)</button><button class="${u.tab === 'import' ? 'on' : ''}" data-action="bid-tab" data-tab="import">Import dated schedule${(st.scheduleImports || []).length ? ` (${st.scheduleImports.length})` : ''}</button></div>`;
       return `<div class="page-head"><div><h1>Schedules & Bids</h1><p>A schedule slot is one person's repeating schedule: their shift, rotation and start date. Vacant slots are unfilled positions; in a shift bid, people pick slots in seniority order.</p></div></div>
-        ${tabs}${u.tab === 'lines' ? linesTab(st, u) : u.tab === 'import' ? App.importTab(st) : bidsTab(st, u)}`;
+        ${tabs}${u.tab === 'lines' ? linesTab(st, u) : u.tab === 'template' ? App.templateTab(st) : u.tab === 'import' ? App.importTab(st) : bidsTab(st, u)}`;
     },
   };
 
@@ -33,7 +34,10 @@
     const assigned = new Set(st.lines.filter((l) => l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today)).map((l) => l.employeeId));
     const impWin = P.importWindows(st);
     const imported = (id) => (impWin[id] || []).some(([a, b]) => a <= today && today <= b);
-    const unassignedEmps = st.employees.filter((e) => e.status !== 'inactive' && !assigned.has(e.id) && !imported(e.id));
+    // Part-timers without a slot just pick up open shifts; that's normal.
+    const unassignedEmps = st.employees.filter((e) => e.status !== 'inactive' && !P.isPartTime(e) && !assigned.has(e.id) && !imported(e.id));
+    const fixed = (st.center.lineMode || 'fixed') === 'fixed';
+    const runs = runReport(st);
     const vacantLines = lines.filter((l) => !l.employeeId && (!l.effectiveTo || P.parseDate(l.effectiveTo) >= today));
     const summary = classes.map((c) => {
       const ls = lines.filter((l) => (clsOf(l) || {}).id === c.id && P.lineActiveOn(l, today));
@@ -45,7 +49,10 @@
     return `<div class="panel">
       <div class="page-head" style="margin-bottom:8px"><div class="pill-list">${summary}</div>
         <div class="toolbar"><label class="check"><input type="checkbox" ${u.showPast ? 'checked' : ''} data-change="lines-past"> Show ended schedule slots</label>
-        <button class="btn" data-action="line-add">+ Schedule slot</button><button class="btn" data-action="line-gen" data-target="current">Generate schedule slots…</button><button class="btn primary" data-action="sug-open" title="Keeps everyone on their shift and picks which week of the rotation each person starts on">Rebalance schedule slots…</button></div></div>
+        <button class="btn" data-action="line-add">+ Schedule slot</button>${fixed ? '<button class="btn primary" data-action="bid-tab" data-tab="template">Upload schedule template</button>' : `<button class="btn" data-action="line-gen" data-target="current">Generate schedule slots…</button><button class="btn primary" data-action="sug-open" title="Keeps everyone on their shift and picks which week of the rotation each person starts on">Rebalance schedule slots…</button>`}</div></div>
+      ${!lines.some((l) => l.employeeId) ? '<div class="callout">No schedule slots yet. <a href="#/bid" data-action="bid-tab" data-tab="template"><b>Upload your schedule template</b></a> to create them from the spreadsheet you already use.</div>' : ''}
+      ${runs.over.length ? `<div class="callout warn"><b>${runs.over.length} schedule slot(s) work more than ${runs.limit} days in a row:</b> ${runs.over.map((x) => esc(x.name)).join(', ')}.
+        ${runs.fix.trades.length ? ` <button class="btn sm primary" data-action="slot-runfix">Suggest a fix…</button> <span class="small muted">Trades days between slots on the same shift; coverage and hours don't change.</span>` : ''}</div>` : ''}
       ${unassignedEmps.length ? `<div class="callout warn">No schedule slot assigned: ${unassignedEmps.map((e) => esc(P.empName(e))).join(', ')}</div>` : ''}
       ${vacantLines.length ? `<div class="callout">${vacantLines.length} vacant schedule slot(s) — these produce structural openings until filled.</div>` : ''}
       <div class="table-wrap"><table><thead><tr><th>Schedule slot</th><th>Job class</th><th title="Optional. Only breaks ties when people are placed on consoles.">Preferred console</th><th>Shift</th><th>Pattern</th><th>Rotation anchor</th><th>Effective</th><th>Ends</th><th>Employee</th><th class="num">Avg h/wk</th><th></th></tr></thead><tbody>
@@ -75,7 +82,7 @@
       <td><input type="date" value="${esc(l.anchorDate || l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="anchorDate"></td>
       ${kind === 'line' ? `<td><input type="date" value="${esc(l.effectiveFrom)}" data-change="${ch}" data-id="${l.id}" data-f="effectiveFrom"></td>
       <td><input type="date" value="${esc(l.effectiveTo || '')}" data-change="${ch}" data-id="${l.id}" data-f="effectiveTo"></td><td>${empSel}</td>` : ''}
-      <td class="num">${hrs(wk)}${otBadge(st, l)}</td>
+      <td class="num">${hrs(wk)}${otBadge(st, l)}${kind === 'line' && pat && !l.effectiveTo && T.maxRun(pat.cycle) > (+st.center.maxConsecutiveDays || 99) ? ` <span class="badge warn" title="Works ${T.maxRun(pat.cycle)} days in a row somewhere in the pattern">${T.maxRun(pat.cycle)} in a row</span>` : ''}</td>
       <td><button class="btn sm danger" data-action="${kind === 'line' ? 'line-del' : 'bidline-del'}" data-id="${l.id}" title="Delete schedule slot">✕</button></td></tr>`;
   }
 
@@ -96,8 +103,65 @@
       otCache[k] = P.otReport(temp, t0, t0 + 363).totals.hours;
     }
     const h = otCache[k];
-    return h > 0.01 ? ` <span class="badge bad" title="This schedule slot is scheduled over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day periods">+${hrs(h)} OT h/yr</span>` : '';
+    return h > 0.01 ? ` <span class="badge" title="Scheduled overtime: this slot is over ${c.otThresholdHours} h in some ${c.otPeriodDays}-day work weeks. Fix coverage suggests part-timers to cut it.">${hrs(h)} OT h/yr scheduled</span>` : '';
   }
+
+  /**
+   * Days in a row for current slots, and trades that fix them. Slots are compared on a
+   * shared calendar (from the current work week) when they're on the same shift and
+   * their patterns are the same length.
+   */
+  function runReport(st) {
+    const limit = +st.center.maxConsecutiveDays || 0;
+    const today = P.todayNum();
+    const ref = P.workWeek(st, today).start;
+    const ix = P.index(st);
+    const slots = [];
+    for (const l of st.lines) {
+      if (!l.employeeId && !l.name) continue;
+      if (l.effectiveTo && P.parseDate(l.effectiveTo) < today) continue;
+      const e = l.employeeId ? ix.emp[l.employeeId] : null;
+      if (e && P.isPartTime(e)) continue;
+      const pat = ix.pat[l.patternId];
+      if (!pat || !pat.cycle || pat.cycle.length % 7) continue;
+      const L = pat.cycle.length, a = P.parseDate(l.anchorDate || l.effectiveFrom);
+      const cycle = Array.from({ length: L }, (_, i) => pat.cycle[P.mod(ref + i - a, L)]);
+      slots.push({ name: l.name || l.id, id: l.id, line: l, group: `${l.shiftTemplateId}|${L}|${(P.lineClass(st, l) || {}).id}`, cycle });
+    }
+    if (!limit) return { limit, over: [], fix: { trades: [] }, slots, ref };
+    const over = slots.filter((x) => T.maxRun(x.cycle) > limit);
+    const fix = over.length ? T.fixRuns(slots, limit) : { trades: [], cycles: {} };
+    return { limit, over, fix, slots, ref };
+  }
+  App.actions['slot-runfix'] = () => {
+    const st = S();
+    const r = runReport(st);
+    const notice = +st.center.dayOffNoticeDays || 0;
+    const d = P.todayNum() + notice;
+    const wk = P.workWeek(st, d);
+    const eff = wk.start === d ? d : wk.start + 7;
+    const dowAt = (i) => P.DOW[P.dow(r.ref + i)];
+    const list = r.fix.trades.map((t) => `<li><b>${esc(t.a)}</b> works ${dowAt(t.y)} instead of ${dowAt(t.x)}, and <b>${esc(t.b)}</b> works ${dowAt(t.x)} instead of ${dowAt(t.y)} (week ${t.week + 1} of the cycle starting ${P.shortDate(r.ref)}).</li>`).join('');
+    App.confirm(`<p>These trades keep the same people on duty every day and everyone's weekly hours the same:</p><ul>${list}</ul>
+      ${r.fix.remaining.length ? `<p class="small">Still over ${r.limit}: ${r.fix.remaining.map(esc).join(', ')}.</p>` : ''}
+      <p>Apply from <b>${P.shortDate(eff)}</b> (after your ${notice}-day notice)? The people in these slots are notified.</p>`, () => {
+      App.commit((s) => {
+        const changed = new Set(r.fix.trades.flatMap((t) => [t.a, t.b]));
+        const ctx = { now: new Date().toISOString() };
+        for (const x of r.slots) {
+          if (!changed.has(x.name)) continue;
+          const old = s.lines.find((l) => l.id === x.id);
+          if (!old) continue;
+          const pat = { id: P.uid('pat'), name: `Template: ${old.name}`, cycle: r.fix.cycles[x.name], template: true };
+          s.patterns.push(pat);
+          const nl = Object.assign({}, old, { id: P.uid('ln'), patternId: pat.id, anchorDate: P.fmtDate(r.ref), effectiveFrom: P.fmtDate(eff), effectiveTo: null });
+          if (P.parseDate(old.effectiveFrom) >= eff) s.lines = s.lines.filter((l) => l.id !== old.id); else old.effectiveTo = P.fmtDate(eff - 1);
+          s.lines.push(nl);
+          if (nl.employeeId) App.A.notify(s, nl.employeeId, 'Your days off are changing', `From ${P.shortDate(eff)} your schedule slot "${nl.name}" trades a day with another slot so you don't work more than ${r.limit} days in a row. Same hours each week. Check My Schedule.`, ctx, 'me');
+        }
+      }, 'Schedule slots updated; people notified');
+    }, 'Apply');
+  };
 
   App.actions['sug-open'] = (el) => App.openSuggest({ bidId: el.dataset.bid || null });
   App.actions['bid-tab'] = (el) => { App.ui.bid.tab = el.dataset.tab; App.render(); };

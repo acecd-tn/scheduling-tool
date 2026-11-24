@@ -33,6 +33,7 @@
       const num = (k, step = 1, extra = '') => `<input type="number" step="${step}" value="${esc(c[k])}" data-change="center" data-k="${k}" data-type="num" ${extra}>`;
       const chk = (k) => `<input type="checkbox" ${c[k] ? 'checked' : ''} data-change="center" data-k="${k}" data-type="bool">`;
       const B = window.PSAPBalance;
+      const rotMode = c.lineMode === 'rotation';
       const rotPat = B.rotationPattern(st);
       const base = rotPat ? (rotPat.base || '') : '';
       const fourH = st.shiftTemplates.filter((t) => +t.hours === 4);
@@ -57,24 +58,30 @@
       }).join('');
       return `<div class="page-head"><div><h1>Settings</h1><p>Your rotation rules, minimum staffing and data. Rarely changed settings are under Advanced.</p></div></div>
       <div class="grid g2">
-        <div class="panel"><h2>Rotation rules</h2>
+        <div class="panel"><h2>${rotMode ? 'Rotation rules' : 'Schedule rules'}</h2>
           <div class="field"><label>Center name</label><input value="${esc(c.name)}" data-change="center" data-k="name" style="width:100%"></div>
-          <ul class="small" style="margin:6px 0 10px;padding-left:18px;line-height:1.6">
+          ${rotMode ? '' : `<ul class="small" style="margin:6px 0 10px;padding-left:18px;line-height:1.6">
+            <li>Each schedule slot repeats its own pattern, e.g. your 2-week template (Day 1–6, Night 1–6, Mid). Upload a new template on <a href="#/bid">Schedules &amp; Bids</a>.</li>
+            <li>Overtime counts after ${c.otThresholdHours || 40} hours in a work week starting ${P.DOW[P.dow(P.parseDate(c.otPeriodStart || '2026-01-04'))]}. Weeks over that in the template are scheduled overtime.</li>
+            <li>Fix coverage covers gaps with day-off moves and part-timers before overtime, and suggests part-timers to bring long weeks back to ${c.otThresholdHours || 40} hours.</li>
+          </ul>`}
+          ${rotMode ? `<ul class="small" style="margin:6px 0 10px;padding-left:18px;line-height:1.6">
             <li>Three 12-hour shifts plus one 4-hour shift a week: exactly ${c.otThresholdHours || 40} hours, never more.</li>
             <li>People keep their shift (days stay days, nights stay nights). Only days off move.</li>
             <li>Days off move one day later each week, through every combination in 7 weeks${base ? ` <span class="muted">(base week ${P.DOW.map((d, i) => `${d} ${base[i]}`).join(' · ')}; W = 12, S = 4-hour, O = off)</span>` : ''}.</li>
             <li>4-hour shifts are spread across the week so short days don't thin the same shift.</li>
-          </ul>
+          </ul>` : ''}
           <div class="form-grid">
             <div class="field"><label>Most days in a row (a 4-hour shift counts)</label>${num('maxConsecutiveDays', 1, 'min="1" max="7"')}</div>
             <div class="field"><label>Notice for changing days off (days)</label>${num('dayOffNoticeDays', 1, 'min="0"')}</div>
             <div class="field"><label>Fix coverage looks ahead (weeks)</label>${num('fixHorizonWeeks', 1, 'min="1" max="12"')}</div>
           </div>
           <p class="small muted">One more day in a row is allowed only when a supervisor marks a move as an emergency on Fix coverage; it is flagged on the schedule.</p>
+          <label class="check">${chk('offerOtRelief')} Suggest part-timers to bring full-timers' long weeks back to ${c.otThresholdHours || 40} hours</label>
           <label class="check">${chk('offerTraining')} Offer 4-hour shifts for training when coverage stays at minimum without overtime</label>
-          <h3 style="margin-top:12px">When the 4-hour shift is worked</h3>
+          ${rotMode ? `<h3 style="margin-top:12px">When the 4-hour shift is worked</h3>
           ${shortRows ? `<table class="small"><thead><tr><th>Job class</th><th>Shift</th><th>4-hour shift</th></tr></thead><tbody>${shortRows}</tbody></table>
-            <p class="small muted">A single schedule slot can use its own 4-hour shift (Schedules &amp; Bids → edit the schedule slot).</p>` : '<p class="small muted">Shows once people hold 12-hour schedule slots.</p>'}
+            <p class="small muted">A single schedule slot can use its own 4-hour shift (Schedules &amp; Bids → edit the schedule slot).</p>` : '<p class="small muted">Shows once people hold 12-hour schedule slots.</p>'}` : ''}
           <h3 style="margin-top:12px">Part-time staff</h3>
           <label class="check">${chk('partTimeFirst')} Offer open shifts to part-timers first (straight time, before full-time OT)</label>
           <div class="form-grid"><div class="field"><label>Default weekly cap (h)</label>${num('partTimeDefaultCap', 0.5)}</div></div>
@@ -135,7 +142,7 @@
           </div>
           <h3 style="margin-top:12px">Schedule slots</h3>
           <div class="form-grid">
-            <div class="field"><label>Schedule slot tools build</label><select data-change="center" data-k="lineMode"><option value="rotation" ${c.lineMode !== 'weekly' ? 'selected' : ''}>The rotation (3 × 12 + one 4-hour)</option><option value="weekly" ${c.lineMode === 'weekly' ? 'selected' : ''}>Fixed 7-day patterns (8s, 10s...)</option></select></div>
+            <div class="field"><label>Schedules are built from</label><select data-change="center" data-k="lineMode"><option value="fixed" ${c.lineMode === 'fixed' || !c.lineMode ? 'selected' : ''}>Your own schedule template (fixed slots)</option><option value="rotation" ${c.lineMode === 'rotation' ? 'selected' : ''}>The 7-week rotation (3 × 12 + one 4-hour)</option><option value="weekly" ${c.lineMode === 'weekly' ? 'selected' : ''}>Fixed 7-day patterns (8s, 10s...)</option></select></div>
             <div class="field"><label>Rotation base week (Sun → Sat)</label><input value="${esc(base)}" data-change="rot-base" maxlength="7" style="font-family:monospace;width:110px" title="7 letters: W = 12-hour, S = 4-hour, O = off"></div>
           </div>
           <p class="small muted">The base week sets where the 12s, the 4-hour shift and days off fall; each later week moves it one day. It must keep within the days-in-a-row limit.</p>

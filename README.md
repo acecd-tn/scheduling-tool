@@ -28,9 +28,9 @@ password `demo-password`):
 npm run demo
 ```
 
-The demo center has Law and Fire/EMS consoles plus a supervisor console, 17
-Telecommunicators (9 days, 8 nights) and 5 Supervisors on the 0700/1900 rotation,
-and 3 part-timers. Sign in as `rreed` (supervisor) or `aadams` (employee).
+The demo center runs a 2-week 12-hour template (Day 1–6, Night 1–6 and a Mid-shift,
+Monday–Sunday weeks) on Law and Fire/EMS consoles, with 4 supervisors and 3
+part-timers. Sign in as `nnash` (supervisor) or `aadams` (employee).
 
 | Setting (environment variable) | Default | |
 |---|---|---|
@@ -110,19 +110,28 @@ and after. That matters for grievances and payroll disputes.
 - **Overtime.** OT after 40 h in the work week by default (configurable). Shows the
   current week actual vs. predicted, fiscal year to date, a projection against the
   budget, unfilled-opening exposure, OT by reason and by employee, and CSV export.
-- **The rotation (default).** Three 12-hour shifts plus one 4-hour shift a week:
-  exactly 40 hours in every work week, never more. People keep their shift (days stay
-  days, nights stay nights); only days off move: one day later each week, through every
-  combination (weekends included) over 7 weeks. The default base week never puts anyone
-  on more than 3 days in a row. The 4-hour shift starts with the regular shift (day
-  0700-1100, night 1900-2300) or falls during peak call volume; pick per job class in
-  Settings (the peak hours are suggested from your minimums) or per schedule slot. Other 40-hour
-  patterns (5×8, 4×10, 2×12 + 2×8) are under Settings → Advanced; any custom schedule slot that
-  would build in OT is flagged.
-- **Days in a row.** Nobody is scheduled more than 4 days in a row (the 4-hour shift
-  counts as a day). A 5th only when a supervisor marks a day-off move as an emergency;
-  it is flagged on the schedule. Extra shifts that would break the limit are flagged
-  in the fill list.
+- **Your schedule template (default).** Schedules & Bids → Upload schedule template.
+  Upload the spreadsheet you already schedule from (.xlsx, CSV or pasted rows): a block
+  per shift titled like *Days (0700 - 1900)*, one row per slot and week (*Day 1 · Week 1
+  · Mon … Sun*) with *Work*, *RDO* or a time like *1100-1500*; a slot with its own hours
+  can say so in its name (*Mid-Shift (1100-2300)*). Each slot becomes a schedule slot
+  that repeats (e.g. every 2 weeks). The preview shows each slot's weekly hours and days
+  in a row, the overtime built into the template, and you pick who holds each slot.
+  Overtime weeks can be set to match the template (e.g. Monday–Sunday). Weeks over 40
+  hours are shown as *scheduled* overtime, not as a mistake.
+- **The 7-week rotation (optional).** Settings → Advanced → Schedules are built from.
+  Three 12-hour shifts plus one 4-hour shift a week (exactly 40 hours); days off move
+  one day later each week over 7 weeks. The 4-hour shift starts with the regular shift
+  or falls during peak call volume (per job class or schedule slot). Other 40-hour
+  patterns (5×8, 4×10, 2×12 + 2×8) are there too; any custom schedule slot that would
+  build in OT is flagged.
+- **Days in a row.** Nobody should work more than 4 days in a row (a 4-hour shift
+  counts as a day). Slots that do are flagged on Schedules & Bids and in the template
+  preview, with a suggested fix: two slots on the same shift trade a work day and a day
+  off in the same week, so every day keeps the same people on duty and every slot keeps
+  its weekly hours. Day-off moves never go past the limit; a 5th day only when a
+  supervisor marks a move as an emergency (flagged on the schedule). Extra shifts that
+  would break the limit are flagged in the fill list.
 - **Shift bid.** Per job class: generate the class's schedule slots, bid in seniority order (employees pick on their own
   turn and are notified when it arrives), preview coverage across all consoles the
   class staffs, then apply on an effective date.
@@ -144,19 +153,22 @@ and after. That matters for grievances and payroll disputes.
   Critical (<75%), thresholds editable. Shown on the Dashboard and Staff page with a
   6-month outlook from solo dates and leave return dates; a notice appears when a
   level changes. Each level has its own relief margin and daily vacation limit.
-- **Fix coverage** (Dashboard → Fix coverage). The tool runs the rotation; the scheduler
+- **Fix coverage** (Dashboard → Fix coverage). The tool does the legwork; the scheduler
   reviews and approves. One short page answers three questions for the next few weeks:
   1. *Which shifts are short*, in plain words ("Fri nights are 1 short for 3 weeks").
   2. *Who can cover without overtime*: day-off moves first ("Have Smith work Fri
      instead of Tue?": same shift, same work week so still 40 hours, rest rules, the
-     notice period and the days-in-a-row limit), then part-timers under their cap. When
-     coverage allows, it also offers 4-hour shifts for training (a part-timer may cover
-     the seat), never at the cost of overtime.
+     notice period and the days-in-a-row limit), then part-timers under their cap.
+     **Cut scheduled overtime:** in a long week (e.g. the 48-hour week of a 2-week
+     template) a part-timer works part of one shift at straight time and the full-timer
+     stays at 40 hours ("Have Jones (part-time) work Tue 1100–1900 for Smith? Smith works
+     0700–1100 and stays at 40 hours. Saves about $200."). When coverage allows, it also
+     offers 4-hour shifts for training, never at the cost of overtime.
   3. *What it costs if nobody can*, with advice at Critical staffing and a pointer to
-     rebalance the schedule slots when the same gap repeats every week.
+     the slots or template when the same gap repeats every cycle.
   Each suggestion is Approve or Skip; approving notifies the employee. Changes inside
   the notice period, or a 5th day in a row (emergency), are opt-in.
-- **Rebalance schedule slots** (Schedules & Bids, Fix coverage, or inside a shift bid). Keeps everyone
+- **Rebalance schedule slots** (7-week rotation only; also inside a shift bid). Keeps everyone
   on their shift and picks which week of the rotation each person starts on, so every
   hour of the job class's consoles is at minimum, extra hours stay within the relief
   margin and 4-hour days are spread across the week. Shows who changes (days off before
@@ -167,6 +179,8 @@ and after. That matters for grievances and payroll disputes.
   approved immediately; a calendar shows full days. The same per-job-class limit
   (Staff → Max off / day) flags ordinary time-off requests that would exceed it.
 - **Planner.** FTE needed and relief factor per schedule type against your minimums.
+- **Reports.** Coverage, Consoles, Overtime and Planner are under Reports, so the menu
+  holds only the pages a scheduler uses every day.
 
 ## Notifications
 
@@ -195,6 +209,8 @@ index.html, css/        web app
 js/core.js              scheduling / coverage / OT / bid engine (no DOM; unit tested)
 js/actions.js           workflow rules (requests, trades, postings, bids); run by the server
 js/importer.js          reads and imports an existing schedule grid
+js/xlsx.js              reads .xlsx files in the browser (no dependencies)
+js/template.js          schedule templates: read, preview, days-in-a-row trades, create slots
 js/balancer.js          rotation schedule-slot suggestions, day-off moves, Fix coverage plan
 js/app.js               data layer (server or local), sign-in, routing, modals
 js/views/*.js           one file per page

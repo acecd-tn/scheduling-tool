@@ -383,7 +383,7 @@ test('v4 conversion: job class on every employee, line and bid; console becomes 
   assert.equal(s.lines[0].positionId, null);        // nobody tied to a console by their line
   assert.equal(s.bids[0].jobClassId, 'tc');
   assert.equal(s.bids[0].lines[0].jobClassId, 'tc');
-  assert.equal(s.center.schemaVersion, 5);
+  assert.equal(s.center.schemaVersion, 6);
   // Runs once.
   s.employees[0].jobClassId = 'sv';
   assert.equal(P.migrate(s).employees[0].jobClassId, 'sv');
@@ -472,20 +472,20 @@ test('demo data builds and produces sane numbers', () => {
   const s = P.demoState(today);
   const sum = P.staffingSummary(s);
   assert.deepEqual(sum.map((r) => r.jobClass.name), ['Telecommunicator', 'Supervisor']);
-  assert.equal(sum[0].vacancies, 1);
-  // Everyone full-time is on the rotation: 40 hours every work week, never 5 days in a row.
+  assert.equal(sum[0].vacancies, 3);
+  // The 2-week template: 13 telecommunicator slots, weeks of 40-48 hours (Mon-Sun).
+  assert.equal(s.center.lineMode, 'fixed');
+  assert.equal(s.lines.filter((l) => l.jobClassId === 'jc_tc').length, 13);
   const wk = P.workWeek(s, today + 7).start;
-  const regs = P.regularShifts(s, wk, wk + 48);
-  for (const e of s.employees.filter((x) => !P.isPartTime(x))) {
+  assert.equal(P.DOW[P.dow(wk)], 'Mon');
+  const regs = P.regularShifts(s, wk, wk + 13);
+  for (const e of s.employees.filter((x) => x.jobClassId === 'jc_tc' && !P.isPartTime(x))) {
     const mine = regs.filter((r) => r.employeeId === e.id);
-    if (!mine.length) continue;
-    for (let w = 0; w < 7; w++) assert.equal(mine.filter((r) => r.day >= wk + 7 * w && r.day < wk + 7 * w + 7).reduce((t, r) => t + (r.end - r.start) / 60, 0), 40);
-    const days = new Set(mine.map((r) => r.day));
-    for (const d of days) assert.ok(P.runThrough(days, d) <= 3);
+    for (let w = 0; w < 2; w++) { const h = mine.filter((r) => r.day >= wk + 7 * w && r.day < wk + 7 * w + 7).reduce((t, r) => t + (r.end - r.start) / 60, 0); assert.ok(h >= 40 && h <= 48, `${e.lastName} ${h}`); }
   }
   const fc = P.otForecast(s, today);
   assert.ok(fc.ytd > 0 && fc.projection >= fc.ytd);
-  assert.ok(!fc.full.totals.byReason['built-in'], 'demo rotation should build in no OT');
+  assert.ok(fc.full.totals.byReason['built-in'].hours > 1000, 'the template schedules 48-hour weeks');
 });
 
 test('fill candidates warn when an extra shift makes more than 4 days in a row', () => {

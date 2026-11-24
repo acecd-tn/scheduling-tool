@@ -309,7 +309,7 @@
     if (!pids.length) return { error: 'This job class staffs no consoles (Staff → Consoles → Staffed by).' };
     const ix = P.index(state);
     const ref = opts.effectiveDate != null ? P.parseDate(opts.effectiveDate) : P.todayNum();
-    let mode = opts.mode || state.center.lineMode || 'rotation';
+    let mode = opts.mode || (state.center.lineMode === 'weekly' ? 'weekly' : 'rotation');
     if (mode === 'rotation' && !rotationPattern(state)) mode = 'weekly';
     // Lines start on a work-week boundary so every work week is 40 hours.
     const wk = P.workWeek(state, ref);
@@ -626,6 +626,58 @@
       }
     }
 
+    // Cut scheduled overtime: someone scheduled over 40 hours in a work week (e.g. the
+    // 48-hour week of a 2-week template) works part of one shift, and a part-timer under
+    // their cap works the rest at straight time. They land at exactly 40 hours and
+    // coverage doesn't change.
+    const relief = [];
+    if (opts.relief !== false && c.offerOtRelief !== false) {
+      const threshold = +c.otThresholdHours || 40;
+      const wi = P.workIntervals(temp, fromDay - 1, to + 1);
+      const byEmp = P.groupBy(wi.intervals, 'employeeId');
+      const wk = P.workWeek(temp, fromDay);
+      const firstOk = opts.allowShortNotice ? today + 1 : today + notice;
+      for (const e of temp.employees) {
+        if (!P.countable(e) || P.isPartTime(e)) continue;
+        const x = info[classOfEmp[e.id]];
+        if (!x) continue;
+        const ivs = (byEmp[e.id] || []).filter((iv) => iv.day >= wk.start && iv.day <= wk.end && iv.end > iv.start);
+        const total = ivs.reduce((t, iv) => t + (iv.end - iv.start) / 60, 0);
+        const excess = Math.round((total - threshold) * 4) / 4;
+        if (excess < 1) continue;
+        // A whole regular shift longer than the excess, far enough out; keep at least 4 hours.
+        const shifts = ivs.filter((iv) => iv.kind === 'regular' && !iv.moveId && iv.day >= Math.max(fromDay, firstOk) && iv.day <= to
+          && (iv.end - iv.start) / 60 - excess >= 4 - 1e-9 && iv.start === (P.regularShifts(temp, iv.day, iv.day).find((r) => r.employeeId === e.id && r.day === iv.day) || {}).start);
+        let done = false;
+        for (const r of shifts.sort((a, b) => a.start - b.start)) {
+          if (done) break;
+          const reg = P.regularShifts(temp, r.day, r.day).find((q) => q.employeeId === e.id && q.day === r.day);
+          if (!reg || reg.end !== r.end) continue; // only untouched shifts
+          const ps = reg.end - excess * 60, pe = reg.end;
+          const key = `r|${e.id}|${P.fmtDate(r.day)}`;
+          if (skip.has(key)) continue;
+          const pid = P.certifications(e).find((q) => x.consoles.includes(q)) || reg.positionId;
+          const cands = P.fillCandidates(temp, { positionId: pid, start: ps, end: pe }, { order: 'voluntary', jobClassId: x.jobClass.id })
+            .filter((cd) => cd.partTime && cd.eligible && !cd.otHours && cd.emp.id !== e.id && !cd.warnings.some((w) => /in a row/.test(w)));
+          for (const pick of cands) {
+            const pPid = P.qualifiedFor(pick.emp, pid) ? pid : P.certifications(pick.emp).find((q) => x.consoles.includes(q));
+            if (!pPid) continue;
+            const exc = { id: P.uid('ex'), employeeId: e.id, date: P.fmtDate(r.day), endDate: null, start: P.timeStr(ps), hours: excess, type: 'otrelief', status: 'approved', note: `${P.empName(pick.emp)} (part-time) covers; back to ${threshold} hours` };
+            const fill = { id: P.uid('ot'), date: P.fmtDate(r.day), start: P.timeStr(ps), hours: excess, positionId: pPid, employeeId: pick.emp.id, type: 'voluntary', reason: 'otrelief', exceptionId: exc.id, status: 'scheduled' };
+            const before = P.openings(temp, r.day - 1, r.day + 1).slots.length;
+            temp.exceptions.push(exc); temp.fills.push(fill);
+            if (P.openings(temp, r.day - 1, r.day + 1).slots.length > before) { temp.exceptions.pop(); temp.fills.pop(); continue; }
+            const mult = +c.otMultiplier || 1.5;
+            const saved = excess * (+e.hourlyRate || 0) * mult - pick.cost;
+            if (saved <= 0) { temp.exceptions.pop(); temp.fills.pop(); continue; }
+            relief.push({ key, employeeId: e.id, ptId: pick.emp.id, date: exc.date, keepStart: P.timeStr(reg.start), keepHours: (reg.end - reg.start) / 60 - excess, start: exc.start, hours: excess, weekHours: total, saved, ptCost: pick.cost, exception: exc, fill, templateId: reg.templateId });
+            done = true;
+            break;
+          }
+        }
+      }
+    }
+
     // 4-hour shifts that could go to training: coverage stays at minimum without anyone
     // on overtime (spare staff, or a part-timer covers the seat).
     const training = [];
@@ -666,7 +718,7 @@
     const hours = slots.reduce((t, s) => t + s.hours, 0);
     const cost = slots.reduce((t, s) => t + P.slotCost(temp, s), 0);
     const after = classScore(temp, fromDay, to).out;
-    return { from: fromDay, to, classes, moves, ptOffers, training, remaining: { slots, hours, cost }, after, skippedForNotice, blockedByRun, noticeDays: notice, state: temp };
+    return { from: fromDay, to, classes, moves, ptOffers, relief, training, remaining: { slots, hours, cost }, after, skippedForNotice, blockedByRun, noticeDays: notice, state: temp };
   }
 
   // ------------------------------------------------------- plan coverage
@@ -741,11 +793,11 @@
     const now = opts.now != null ? opts.now : P.nowAbs();
     const gapsBefore = P.openings(state, start, end).slots.filter((s) => s.end > now);
     let temp = cloneForPlan(state);
-    const all = { moves: [], ptOffers: [], training: [], skippedForNotice: 0, blockedByRun: 0, classes: null };
+    const all = { moves: [], ptOffers: [], relief: [], training: [], skippedForNotice: 0, blockedByRun: 0, classes: null };
     for (let w = 0; w < weeks; w++) {
       const r = balanceWeek(temp, start + 7 * w, Object.assign({}, opts, { temp: true, now }));
       temp = r.state;
-      all.moves.push(...r.moves); all.ptOffers.push(...r.ptOffers); all.training.push(...r.training);
+      all.moves.push(...r.moves); all.ptOffers.push(...r.ptOffers); all.relief.push(...r.relief); all.training.push(...r.training);
       all.skippedForNotice += r.skippedForNotice; all.blockedByRun += r.blockedByRun;
       if (!all.classes) all.classes = r.classes;
     }
@@ -765,6 +817,14 @@
       g.items.push(o); g.cost += o.cost; g.skipKeys.push(ptKey(o));
     }
     const training = all.training.map((t) => Object.assign({ key: trainKey(t), kind: 'training', skipKeys: [trainKey(t)] }, t));
+    // The same relief every other week reads as one suggestion.
+    const rg = {};
+    for (const r of all.relief) {
+      const k = [r.employeeId, r.ptId, P.dow(P.parseDate(r.date)), r.start, r.hours].join('|');
+      const g = rg[k] || (rg[k] = { key: k, kind: 'relief', employeeId: r.employeeId, ptId: r.ptId, dow: P.dow(P.parseDate(r.date)), start: r.start, hours: r.hours, keepStart: r.keepStart, keepHours: r.keepHours, items: [], saved: 0, skipKeys: [] });
+      g.items.push(r); g.saved += r.saved; g.skipKeys.push(r.key);
+    }
+    const relief = Object.values(rg).sort((a, b) => P.parseDate(a.items[0].date) - P.parseDate(b.items[0].date));
     const remaining = groupGaps(state, remainingSlots);
     for (const g of remaining) g.everyWeek = weeks >= 2 && g.days.length >= weeks;
     return {
@@ -772,7 +832,7 @@
       gaps: groupGaps(state, gapsBefore), gapHours: gapsBefore.reduce((t, s) => t + s.hours, 0),
       moves: Object.values(mg).sort((a, b) => P.parseDate(a.items[0].workDate) - P.parseDate(b.items[0].workDate)),
       ptOffers: Object.values(pg).sort((a, b) => P.parseDate(a.items[0].fill.date) - P.parseDate(b.items[0].fill.date)),
-      training, remaining,
+      training, relief, reliefSaved: relief.reduce((t, g) => t + g.saved, 0), reliefHours: relief.reduce((t, g) => t + g.hours * g.items.length, 0), remaining,
       hours: remainingSlots.reduce((t, s) => t + s.hours, 0), cost: remainingSlots.reduce((t, s) => t + P.slotCost(state, s), 0),
       skippedForNotice: all.skippedForNotice, blockedByRun: all.blockedByRun, noticeDays: +state.center.dayOffNoticeDays || 0,
     };

@@ -36,7 +36,7 @@
     const notice = +st.center.dayOffNoticeDays || 0;
     const eff = bid ? P.parseDate(bid.effectiveDate) : (() => { const d = P.todayNum() + notice; const wk = P.workWeek(st, d); return wk.start === d ? d : wk.start + 7; })();
     App.ui.sug = {
-      bidId: bid ? bid.id : null, jobClassId: jc.id, headcount: '', margin: '', mode: st.center.lineMode || 'rotation', keep: true,
+      bidId: bid ? bid.id : null, jobClassId: jc.id, headcount: '', margin: '', mode: st.center.lineMode === 'weekly' ? 'weekly' : 'rotation', keep: true,
       templateIds: st.shiftTemplates.filter((t) => used.has(t.id) || [8, 10, 12].includes(+t.hours)).map((t) => t.id),
       effective: P.fmtDate(eff), result: null,
     };

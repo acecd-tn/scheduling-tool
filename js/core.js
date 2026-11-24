@@ -30,6 +30,9 @@
     // Shift trade: the partner works this shift at straight time. Under FLSA 7(p)(3) the
     // original employee is credited as if they worked it, and the partner's hours are excluded.
     { id: 'trade', label: 'Shift trade (partner working)', abbr: 'TR', worked: true, system: true },
+    // A part-timer works part of a full-timer's shift so the full-timer stays at 40 hours
+    // (cuts scheduled overtime). Not paid leave: the hours simply aren't worked.
+    { id: 'otrelief', label: 'Part-timer covering (cuts OT)', abbr: 'PT', system: true, unpaid: true },
     // What other employees see in place of someone's leave reason (sick/FMLA are confidential).
     { id: 'leave', label: 'Off (leave)', abbr: 'L', system: true },
   ];
@@ -135,10 +138,11 @@
       levelRules: { normal: { reliefMargin: 1, maxOffPerDay: '' }, short: { reliefMargin: 0, maxOffPerDay: '' }, critical: { reliefMargin: 0, maxOffPerDay: '' } },
       dayOffNoticeDays: 14,       // notice needed before changing someone's days off
       maxConsecutiveDays: 4,      // most days in a row anyone is scheduled (a 4-hour shift counts); +1 only as a flagged emergency
-      lineMode: 'rotation',       // 'rotation' = 3 x 12 + one 4-hr, days off move one day later each week; 'weekly' = fixed 7-day patterns
+      lineMode: 'fixed',          // 'fixed' = each schedule slot keeps its own repeating pattern (e.g. a 2-week template); 'rotation' = 3 x 12 + one 4-hr, days off move one day later each week; 'weekly' = fixed 7-day patterns
       rotationPatternId: 'p_rot', // the rotation the line tools build
       fixHorizonWeeks: 4,         // how far ahead "Fix coverage" looks
       offerTraining: true,        // Fix coverage offers 4-hour shifts for training when coverage allows
+      offerOtRelief: true,        // Fix coverage suggests part-timers to bring weeks over 40 hours back to 40
       levelSeen: {},              // last staffing level acknowledged per job class
       dayStartHour: '',           // scheduling day start hour (0-23); '' = earliest regular shift start
       shiftBoundaries: '',        // e.g. '0700,1900'; '' = worked out from the shifts people work
@@ -325,6 +329,14 @@
       }
       if (!s.patterns.some((p) => p.id === 'p_rot')) s.patterns.unshift(defaultPatterns()[0]);
       s.center.schemaVersion = 5;
+    }
+    // v6: a fixed schedule template is the default. Centers already running the 7-week
+    // rotation keep it.
+    if ((+s.center.schemaVersion || 1) < 6) {
+      const rot = new Set(s.patterns.filter((p) => p.rotation).map((p) => p.id));
+      const onRotation = s.lines.some((l) => l.employeeId && rot.has(l.patternId) && !l.effectiveTo);
+      if (!s.center.lineMode || s.center.lineMode === 'rotation') s.center.lineMode = onRotation ? 'rotation' : 'fixed';
+      s.center.schemaVersion = 6;
     }
     s.version = 2;
     return s;
@@ -788,6 +800,7 @@
     }
     for (const l of leaves) {
       if (l.day < pStart || l.day > pEnd || l.day > cutoff) continue;
+      if (l.type === 'otrelief') continue; // not worked and not paid leave
       if (l.worked) h.workedLeave += l.minutes / 60; else h.leave += l.minutes / 60;
     }
     return h;
@@ -1457,7 +1470,8 @@
     const rnd = mulberry32(9110);
     const s = emptyState();
     s.center.name = 'Demo County Emergency Communications';
-    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 5 });
+    // Work weeks run Monday-Sunday, like the 2-week schedule template.
+    Object.assign(s.center, { annualOtBudget: 90000, schemaVersion: 6, otPeriodStart: '2026-10-05', lineMode: 'fixed' });
     // Minimums are set per discipline. Telecommunicators sit Law or Fire/EMS (most are
     // certified on both); supervisors have their own console.
     s.positions = [
@@ -1467,14 +1481,14 @@
     ];
     // Job classes hold authorized strength; one class can staff several consoles.
     s.jobClasses = [
-      { id: 'jc_tc', name: 'Telecommunicator', positionIds: ['pos_law', 'pos_fire'], authorized: 18, authorizedPartTime: 3, maxOffPerDay: 2 },
-      { id: 'jc_sup', name: 'Supervisor', positionIds: ['pos_sup'], authorized: 6, authorizedPartTime: 0, maxOffPerDay: 1 },
+      { id: 'jc_tc', name: 'Telecommunicator', positionIds: ['pos_law', 'pos_fire'], authorized: 16, authorizedPartTime: 3, maxOffPerDay: 1 },
+      { id: 'jc_sup', name: 'Supervisor', positionIds: ['pos_sup'], authorized: 5, authorizedPartTime: 0, maxOffPerDay: 1 },
     ];
     const grid = (fn) => Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => fn(d, h)));
+    // Minimum 3 telecommunicators around the clock (2 law, 1 fire/EMS) and a supervisor.
     s.minimums = {
-      // Law call volume peaks late afternoon: a third law seat 1500-1900.
-      pos_law: grid((d, h) => (h >= 15 && h < 19 ? 3 : 2)),
-      pos_fire: grid((d, h) => (h >= 7 && h < 23 ? 2 : 1)),
+      pos_law: grid(() => 2),
+      pos_fire: grid(() => 1),
       pos_sup: grid(() => 1),
     };
 
@@ -1495,47 +1509,58 @@
       return e;
     };
 
-    // Everyone works the rotation: three 12s and one 4-hour shift a week (40 hours), days
-    // off one day later each week. People keep their shift; `week` staggers them.
-    const anchor = parseDate('2026-01-04');
-    const line = (jobClassId, tplId, patId, offset, name, emp) => s.lines.push({
-      id: uid('ln'), name, jobClassId, positionId: null, shiftTemplateId: tplId, patternId: patId,
-      anchorDate: fmtDate(anchor + offset), effectiveFrom: '2026-01-04', effectiveTo: null, employeeId: emp ? emp.id : null,
-    });
+    // The 2-week schedule template (weeks run Monday-Sunday): 6 day slots, 6 night slots
+    // and a mid-shift. W = the slot's 12-hour shift, O = off, otherwise a shift id.
+    s.shiftTemplates.push(
+      { id: 't_mid', code: '11-23', name: 'Mid 1100-2300', start: '11:00', hours: 12, color: '#14b8a6' },
+      { id: 't_d4p', code: '11-15', name: 'Day 4 (1100-1500)', start: '11:00', hours: 4, color: '#60a5fa' },
+    );
+    const anchor = parseDate('2026-10-05');
+    const tok = (str) => str.split(' ').map((c) => (c === 'O' ? 0 : c === 'W' ? 1 : c));
+    const TEMPLATE = [
+      ['Day 1', 't_d12', 'W t_d4p O O O W W W W W O O O W'],
+      ['Day 2', 't_d12', 'W W W W O O O O W t_d4p W W O O'],
+      ['Day 3', 't_d12', 'O O O W W W W W O O O t_d4p W W'],
+      ['Day 4', 't_d12', 'W W O O O W W t_d4p W W O O O W'],
+      ['Day 5', 't_d12', 'O O W W W t_d4p O W O O W W W O'],
+      ['Day 6', 't_d12', 'O W W t_d4p W O O O O W W W W O'],
+      ['Mid-Shift', 't_mid', 'W t_e8 W O W O O O W t_e8 W O W O'],
+      ['Night 1', 't_n12', 'W t_n4 O O O W W W W W O O O W'],
+      ['Night 2', 't_n12', 'W t_m8 W W O O O O W t_n4 W W O O'],
+      ['Night 3', 't_n12', 'O O O W W W W W O O O t_n4 W W'],
+      ['Night 4', 't_n12', 'W W O O O W W t_n4 W W O O O W'],
+      ['Night 5', 't_n12', 'O O W W W t_n4 O W O O W W W O'],
+      ['Night 6', 't_n12', 'O W W t_n4 W O O O O t_m8 W W W O'],
+      // Supervisors: two per shift, one on each week.
+      ['Sup Day A', 't_d12', 'W W W O O O W O O O W W W O'],
+      ['Sup Day B', 't_d12', 'O O O W W W O W W W O O O W'],
+      ['Sup Night A', 't_n12', 'W W W O O O W O O O W W W O'],
+      ['Sup Night B', 't_n12', 'O O O W W W O W W W O O O W'],
+    ];
+    const slot = (name, tpl, cycle, emp, jobClassId) => {
+      const pat = { id: 'pat_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_'), name: `Template: ${name}`, cycle: tok(cycle), template: true };
+      s.patterns.push(pat);
+      s.lines.push({ id: uid('ln'), name, jobClassId, positionId: null, shiftTemplateId: tpl, patternId: pat.id, anchorDate: fmtDate(anchor), effectiveFrom: '2026-10-05', effectiveTo: null, employeeId: emp ? emp.id : null });
+    };
     const day = [], night = [], sups = [];
-    // Telecommunicators: 9 on days, 8 on nights; preferred console alternates.
-    [0, 1, 2, 3, 4, 5, 6, 1, 4].forEach((wk, i) => {
-      const pos = i % 2 ? 'pos_fire' : 'pos_law';
-      const e = mk(pos, { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'] });
-      day.push(e); line('jc_tc', 't_d12', 'p_rot', 7 * wk, `TC D-${i + 1}`, e);
+    let mid = null;
+    TEMPLATE.forEach(([name, tpl, cycle], i) => {
+      const sup = name.startsWith('Sup');
+      const e = mk(sup ? 'pos_sup' : (i % 2 ? 'pos_fire' : 'pos_law'), { jobClassId: sup ? 'jc_sup' : 'jc_tc', qualifications: sup ? ['pos_sup', 'pos_law', 'pos_fire'] : ['pos_law', 'pos_fire'] });
+      if (sup) sups.push(e); else if (name.startsWith('Day')) day.push(e); else if (name.startsWith('Night')) night.push(e); else mid = e;
+      slot(name, tpl, cycle, e, sup ? 'jc_sup' : 'jc_tc');
     });
-    [0, 1, 2, 3, 4, 5, 6, 3].forEach((wk, i) => {
-      const pos = i % 2 ? 'pos_law' : 'pos_fire';
-      const e = mk(pos, { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'] });
-      night.push(e); line('jc_tc', 't_n12', 'p_rot', 7 * wk, `TC N-${i + 1}`, e);
-    });
-    // Supervisors: 3 on days, 2 on nights (one night line vacant).
-    [[0, 't_d12', 'D-1'], [2, 't_d12', 'D-2'], [5, 't_d12', 'D-3'], [1, 't_n12', 'N-1'], [4, 't_n12', 'N-2']].forEach(([wk, tpl, nm]) => {
-      const e = mk('pos_sup', { jobClassId: 'jc_sup', qualifications: ['pos_sup', 'pos_law', 'pos_fire'] });
-      sups.push(e); line('jc_sup', tpl, 'p_rot', 7 * wk, `SUP ${nm}`, e);
-    });
-    const tcs = day.concat(night);
+    const tcs = day.concat(night, [mid]);
     const law = tcs.filter((e) => e.positionId === 'pos_law'), fire = tcs.filter((e) => e.positionId === 'pos_fire');
     // Two are certified on one console only.
     day[3].qualifications = ['pos_fire']; night[2].qualifications = ['pos_law'];
-    // Trainees: one on days still with a CTO (doesn't count), one on nights solo-cleared.
-    Object.assign(day[1], { status: 'trainee', soloCleared: false, soloDate: fmtDate(today + 75), hireDate: '2026-09-08', seniorityDate: '2026-09-08', hourlyRate: 20 });
+    // A solo-cleared trainee on nights.
     Object.assign(night[5], { status: 'trainee', soloCleared: true, hireDate: '2026-03-16', seniorityDate: '2026-03-16', hourlyRate: 20 });
-    // Part-time telecommunicators: straight time, capped at 32 hours, never forced. One
-    // works two day shifts a week; two only pick up open shifts.
-    const pt1 = mk('pos_law', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 21, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
-    const pt2 = mk('pos_fire', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 21.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
-    const pt3 = mk('pos_law', { jobClassId: 'jc_tc', employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_law', 'pos_fire'], notes: 'Retired full-timer; picks up open shifts' });
-    void pt2; void pt3;
-    line('jc_tc', 't_d12', 'p_pt2', 5, 'TC PT-1', pt1);
-    // Vacant lines on the books (authorized but unfilled).
-    line('jc_tc', 't_n12', 'p_rot', 7 * 5, 'TC N-9', null);
-    line('jc_sup', 't_n12', 'p_rot', 0, 'SUP N-3', null);
+    // Part-time telecommunicators: not on the template; straight time, capped at 32
+    // hours, never forced. They pick up open shifts and can cut scheduled OT.
+    mk('pos_law', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: null, hourlyRate: 21, hireDate: '2024-05-06', seniorityDate: '2024-05-06' });
+    mk('pos_fire', { jobClassId: 'jc_tc', qualifications: ['pos_law', 'pos_fire'], employmentType: 'part', maxWeeklyHours: 24, hourlyRate: 21.5, hireDate: '2023-02-13', seniorityDate: '2023-02-13' });
+    mk('pos_law', { jobClassId: 'jc_tc', employmentType: 'part', maxWeeklyHours: null, hourlyRate: 24, hireDate: '2019-08-01', seniorityDate: '2019-08-01', qualifications: ['pos_law', 'pos_fire'], notes: 'Retired full-timer; picks up open shifts' });
 
     const ix = index(s);
     const workDays = (emp, from, to) => regularShifts(s, from, to, ix).filter((r) => r.employeeId === emp.id).map((r) => r.day);
@@ -1584,14 +1609,14 @@
     if (dayWorkers[0]) ex(dayWorkers[0], today, 'sick', 'approved', { note: 'Called out 0430' });
     const fm = ex(fire[1], today - 3, 'family', 'approved', { endDate: fmtDate(today + 10), note: 'FMLA — intermittent block' });
     for (const d of workDays(fire[1], today - 3, today - 1)) fillFor({ ...fm, date: fmtDate(d), endDate: null }, 0.3);
-    const v1 = nextWork(night[6], today + 2);
-    if (v1 != null) ex(night[6], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
-    const t1 = nextWork(day[6], today + 5);
-    if (t1 != null) ex(day[6], t1, 'training', 'approved', { start: '13:00', hours: 4, note: 'CTO refresher class' });
+    const v1 = nextWork(night[4], today + 2);
+    if (v1 != null) ex(night[4], v1, 'vacation', 'approved', { endDate: fmtDate(v1 + 4), note: 'Annual leave' });
+    const t1 = nextWork(day[5], today + 5);
+    if (t1 != null) ex(day[5], t1, 'training', 'approved', { start: '13:00', hours: 4, note: 'CTO refresher class' });
     const p1 = nextWork(law[3], today + 6);
     if (p1 != null) ex(law[3], p1, 'vacation', 'pending', { endDate: fmtDate(p1 + 1), note: 'Family trip' });
-    const p2 = nextWork(day[8], today + 9);
-    if (p2 != null) ex(day[8], p2, 'comp', 'pending');
+    const p2 = nextWork(mid, today + 9);
+    if (p2 != null) ex(mid, p2, 'comp', 'pending');
     const p3 = nextWork(sups[1], today + 12);
     if (p3 != null) ex(sups[1], p3, 'vacation', 'pending');
     const v2 = nextWork(sups[2], today + 4);

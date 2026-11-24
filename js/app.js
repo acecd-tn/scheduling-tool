@@ -266,23 +266,26 @@
   };
 
   // -------------------------------------------------------------- router
+  // The pages a scheduler uses every day; the rest are under Reports.
   const NAV_SUP = [
-    ['dashboard', 'Dashboard'], ['schedule', 'Schedule'], ['coverage', 'Coverage'], ['consoles', 'Consoles'], ['openings', 'Openings'], ['fix', 'Fix coverage'],
-    ['overtime', 'Overtime'], ['bid', 'Schedules & Bids'], ['vacation', 'Vacation Bid'], ['staff', 'Staff'], ['planner', 'Planner'], ['settings', 'Settings'],
+    ['dashboard', 'Dashboard'], ['schedule', 'Schedule'], ['fix', 'Fix coverage'], ['openings', 'Openings & requests'],
+    ['bid', 'Schedules & Bids'], ['vacation', 'Vacation Bid'], ['staff', 'Staff'], ['reports', 'Reports'], ['settings', 'Settings'],
   ];
+  const REPORTS = ['coverage', 'consoles', 'overtime', 'planner'];
   const NAV_EMP = [['me', 'My Schedule'], ['schedule', 'Schedule'], ['open', 'Open Shifts'], ['trades', 'Trades'], ['vacation', 'Vacation Bid'], ['bid', 'Shift Bid']];
   const nav = () => App.isSup() ? NAV_SUP : NAV_EMP;
   function route() {
     const h = (location.hash || '').slice(2).split('?')[0];
-    const allowed = nav().map((x) => x[0]);
+    const allowed = nav().map((x) => x[0]).concat(App.isSup() ? REPORTS : []);
     return allowed.includes(h) && App.views[h] ? h : allowed[0];
   }
   App.go = (name) => { location.hash = '#/' + name; };
 
   function topbar(cur) {
     const pending = App.isSup() ? S.exceptions.filter((e) => e.status === 'pending').length + S.trades.filter((t) => t.status === 'accepted').length : 0;
+    const here = REPORTS.includes(cur) ? 'reports' : cur;
     document.getElementById('nav').innerHTML = nav().map(([id, label]) =>
-      `<a href="#/${id}" class="${id === cur ? 'active' : ''}">${label}${id === 'openings' && pending ? ` <span class="badge warn" title="Requests and trades awaiting a decision">${pending}</span>` : ''}</a>`).join('');
+      `<a href="#/${id}" class="${id === here ? 'active' : ''}">${label}${id === 'openings' && pending ? ` <span class="badge warn" title="Requests and trades awaiting a decision">${pending}</span>` : ''}</a>`).join('');
     document.getElementById('center-name').textContent = S.center.name;
     const unread = App.myNotifications().filter((n) => n.unread).length;
     const who = App.me.employeeId ? P.empName(App.emp(App.me.employeeId)) : App.me.username;

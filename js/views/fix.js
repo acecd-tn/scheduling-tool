@@ -79,6 +79,13 @@
         return item('pt', i, text, `Straight time, about ${money(o.cost)} · stays under their weekly cap`);
       }).join('');
 
+      const end = (st0, h) => P.mil(P.parseTime(st0) + h * 60);
+      const relief = plan.relief.map((g, i) => {
+        const dates = g.items.map((x) => P.shortDate(P.parseDate(x.date)).replace(/^\w+ /, '')).join(', ');
+        const text = `<b>Have ${esc(name(g.ptId))} (part-time) work ${DOWS[g.dow]} ${g.start.replace(':', '')}–${end(g.start, g.hours)} for ${esc(name(g.employeeId))}?</b> <span class="muted">(${dates})</span>`;
+        const sub = `${esc(name(g.employeeId))} works ${g.keepStart.replace(':', '')}–${end(g.keepStart, g.keepHours)} that day and stays at ${+st.center.otThresholdHours || 40} hours that week instead of ${hrs(g.items[0].weekHours)}. Saves about ${money(g.saved)} in overtime.`;
+        return item('relief', i, text, sub);
+      }).join('');
       const train = plan.training.map((t, i) => {
         const text = `<b>Use ${esc(name(t.employeeId))}'s 4-hour shift ${P.shortDate(P.parseDate(t.date))} ${t.start.replace(':', '')}–${P.mil(P.parseTime(t.start) + t.hours * 60)} for training</b>`;
         const sub = t.cover ? `${esc(name(t.cover.employeeId))} (part-time) covers the seat at straight time; still at minimum, no overtime.` : 'There are enough people on that shift: still at minimum without them, no overtime.';
@@ -101,19 +108,22 @@
 
         <div class="panel"><h2>1. Which shifts are short</h2>${gapsHtml}</div>
 
-        <div class="panel"><h2>2. Who can cover without overtime ${plan.moves.length + plan.ptOffers.length > 1 ? '<button class="btn sm" data-action="fix-approve-all">Approve all</button>' : ''}</h2>
+        <div class="panel"><h2>2. Who can cover without overtime ${plan.moves.length + plan.ptOffers.length + plan.relief.length > 1 ? '<button class="btn sm" data-action="fix-approve-all">Approve all</button>' : ''}</h2>
           <h3>Move days off <span class="small muted">same shift, same work week, rest rules, ${plan.noticeDays}-day notice, max ${+st.center.maxConsecutiveDays || '—'} days in a row</span></h3>
           ${moves || '<p class="small muted">No day-off moves help.</p>'}
           ${plan.skippedForNotice ? `<p class="small muted">${plan.skippedForNotice} more possible move(s) fall inside the ${plan.noticeDays}-day notice period. <label class="check" style="display:inline-flex"><input type="checkbox" data-change="fix-short" ${u.shortNotice ? 'checked' : ''}> Include them (needs the employee's agreement)</label></p>` : ''}
           <h3>Part-timers <span class="small muted">straight time, under their cap, never forced</span></h3>
           ${pts || '<p class="small muted">No part-timer can take what\'s left (none needed, or none under their cap).</p>'}
+          <h3>Cut scheduled overtime <span class="small muted">a part-timer works part of a ${(+st.center.otThresholdHours || 40) + 8}-hour week so the full-timer stays at ${+st.center.otThresholdHours || 40}</span></h3>
+          ${relief || '<p class="small muted">No part-timer has room to take part of a long week (or none is far enough out for the notice period).</p>'}
+          ${plan.relief.length ? `<p class="small muted">Together: about <b>${hrs(plan.reliefHours)} h</b> less overtime, about <b>${money(plan.reliefSaved)}</b>.</p>` : ''}
           ${train ? `<details class="section"><summary><b>Training time available (${plan.training.length})</b> <span class="small muted">4-hour shifts that can go to training without dropping below minimum or paying overtime</span></summary>${train}</details>` : ''}
         </div>
 
         <div class="panel"><h2>3. If nobody can: overtime</h2>
           ${plan.remaining.length ? `<p><b>${hrs(plan.hours)} h</b> still need overtime over the next ${weeks} weeks — about <b>${money(plan.cost)}</b>. <a class="btn sm" href="#/openings">Fill from Openings</a></p>
             <ul class="fix-list">${left}</ul>
-            ${everyWeek ? `<div class="callout warn">Some gaps repeat every week, so the schedule slots themselves don't cover them. <button class="btn sm primary" data-action="fix-lines">Rebalance schedule slots</button> keeps everyone on their shift and only changes which week of the rotation they start on.</div>` : ''}`
+            ${everyWeek ? `<div class="callout warn">${st.center.lineMode === 'rotation' ? `Some gaps repeat every week, so the schedule slots themselves don't cover them. <button class="btn sm primary" data-action="fix-lines">Rebalance schedule slots</button> keeps everyone on their shift and only changes which week of the rotation they start on.` : 'Some gaps repeat on the same day every cycle, so the schedule template itself leaves them open: a vacant slot, or a day with too few people scheduled. Filling a vacancy, a part-timer\'s regular day, or a change to the template would cover them.'}</div>` : ''}`
           : '<p><span class="badge ok">None</span> Once the suggestions above are approved, every shift is covered without overtime.</p>'}
           ${crit.length ? `<div class="callout bad">${crit.map((x) => `<b>${esc(x.jobClass.name)}</b> is at <b>Critical</b> staffing: work to minimums only and spread gaps across days. Consider holding vacation (daily limit now ${P.maxOffFor(st, x.jobClass) ?? 'none'}${P.maxOffFor(st, x.jobClass) ? `; Settings → Staffing levels` : ''}).`).join('<br>')}</div>` : ''}
           ${short.length ? `<p class="small muted">${short.map((x) => esc(x.jobClass.name)).join(', ')}: Short staffing — part-timers before overtime, no relief margin.</p>` : ''}
@@ -124,7 +134,7 @@
 
   const groupOf = (kind, i) => {
     const p = App.ui.fix.plan;
-    return kind === 'move' ? p.moves[i] : kind === 'pt' ? p.ptOffers[i] : p.training[i];
+    return kind === 'move' ? p.moves[i] : kind === 'pt' ? p.ptOffers[i] : kind === 'relief' ? p.relief[i] : p.training[i];
   };
   const nowIso = () => new Date().toISOString();
 
@@ -142,6 +152,17 @@
         s.fills.push(Object.assign({ id: P.uid('ot'), note: 'Fix coverage: part-time before overtime', createdAt: ctx.now }, fill, { type: 'voluntary', status: 'scheduled' }));
       }
       App.A.notify(s, g.employeeId, 'Extra shift scheduled', `${g.items.map((o) => `${P.shortDate(P.parseDate(o.fill.date))} ${o.fill.start.replace(':', '')} (${o.fill.hours}h)`).join(', ')} on ${App.posName(g.positionId)}, straight time.`, ctx, 'me');
+    } else if (kind === 'relief') {
+      for (const r of g.items) {
+        const exc = Object.assign({}, r.exception, { id: P.uid('ex'), createdAt: ctx.now });
+        s.exceptions.push(exc);
+        const { id: _z, ...fill } = r.fill;
+        s.fills.push(Object.assign({ id: P.uid('ot'), note: 'Fix coverage: part-timer cuts scheduled overtime', createdAt: ctx.now }, fill, { exceptionId: exc.id, status: 'scheduled' }));
+      }
+      const when = g.items.map((r) => P.shortDate(P.parseDate(r.date))).join(', ');
+      const endT = (st0, h) => P.mil(P.parseTime(st0) + h * 60);
+      App.A.notify(s, g.employeeId, 'Shorter shift (part-timer covering)', `${when}: you work ${g.keepStart.replace(':', '')}–${endT(g.keepStart, g.keepHours)}; ${name(g.ptId)} covers ${g.start.replace(':', '')}–${endT(g.start, g.hours)}. You stay at 40 hours that week.`, ctx, 'me');
+      App.A.notify(s, g.ptId, 'Extra shift scheduled', `${when} ${g.start.replace(':', '')}–${endT(g.start, g.hours)}, straight time.`, ctx, 'me');
     } else if (kind === 'training') {
       const exc = Object.assign({}, g.exception, { id: P.uid('ex'), createdAt: ctx.now });
       s.exceptions.push(exc);
@@ -161,9 +182,9 @@
   };
   App.actions['fix-approve-all'] = () => {
     const p = App.ui.fix.plan;
-    const n = p.moves.length + p.ptOffers.length;
+    const n = p.moves.length + p.ptOffers.length + p.relief.length;
     App.confirm(`Approve all ${n} suggestions (day-off moves and part-time shifts)? Each employee is notified.`, () => {
-      App.commit((s) => { for (const g of p.moves) applyGroup(s, 'move', g); for (const g of p.ptOffers) applyGroup(s, 'pt', g); }, `${n} approved; employees notified`);
+      App.commit((s) => { for (const g of p.moves) applyGroup(s, 'move', g); for (const g of p.ptOffers) applyGroup(s, 'pt', g); for (const g of p.relief) applyGroup(s, 'relief', g); }, `${n} approved; employees notified`);
     }, 'Approve all');
   };
   App.actions['fix-skip'] = (el) => {
